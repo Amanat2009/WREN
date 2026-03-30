@@ -150,4 +150,4 @@ The assistant remembers things about you across sessions using a two-layer syste
 | "Kokoro model not found" | Run `python setup_models.py` |
 | No audio output | Check default speakers in Windows Sound settings |
 | Mic not working | Check default mic in Windows Sound settings |
-| Slow STT | Change `WHISPER_MODEL_SIZE` to `"tiny"` in config |
+| Slow STT | Change `WHISPER_MODEL_SIZE` to `"tiny"` in config | a
