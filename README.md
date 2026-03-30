@@ -94,7 +94,7 @@ ollama pull qwen3-fast
 ollama pull nomic-embed-text
 
 # Clone and install dependencies
-git clone https://github.com/Amanat2009/Friend
+git clone https://github.com/Amanat2009/WREN
 python -m venv venv
 source venv/Scripts/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
