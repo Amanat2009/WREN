@@ -142,7 +142,7 @@ The assistant remembers things about you across sessions using a two-layer syste
 
 ## Troubleshooting
 
-| Issue | Fix |
+| Issues | Fix |
 |-------|-----|
 | Connection error during generation | Ensure **Ollama** is running in the background |
 | Ollama not using GPU | Verify that `OLLAMA_VULKAN=1` is set in your system environment variables and Ollama was restarted |
@@ -150,4 +150,4 @@ The assistant remembers things about you across sessions using a two-layer syste
 | "Kokoro model not found" | Run `python setup_models.py` |
 | No audio output | Check default speakers in Windows Sound settings |
 | Mic not working | Check default mic in Windows Sound settings |
-| Slow STT | Change `WHISPER_MODEL_SIZE` to `"tiny"` in config | a
+| Slow STT | Change `WHISPER_MODEL_SIZE` to `"tiny"` in config | 
