@@ -1,11 +1,11 @@
-# 🛸 Antigravity: The Ultimate Local AI Friend
+# 🛸 WREN: The Ultimate Local AI Friend
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Ollama](https://img.shields.io/badge/Ollama-Qwen3--fast-orange.svg)](https://ollama.ai/)
 [![Vulkan](https://img.shields.io/badge/GPU-Vulkan%20Accelerated-green.svg)](https://vulkan.org/)
 
-**Antigravity** is a high-performance, fully local voice assistant and "AI Buddy" designed for low-latency interaction and deep personal memory. It doesn't just answer questions—it grows with you, remembers your history, and visualizes its state through a premium 3D web interface.
+**WREN** is a high-performance, fully local voice assistant and "AI Buddy" designed for low-latency interaction and deep personal memory. It doesn't just answer questions—it grows with you, remembers your history, and visualizes its state through a premium 3D web interface.
 
 > [!IMPORTANT]
 > **100% Local & Private**: No audio or text ever leaves your machine. Powered by Ollama, Faster-Whisper, and Kokoro TTS.
@@ -94,8 +94,7 @@ ollama pull qwen3-fast
 ollama pull nomic-embed-text
 
 # Clone and install dependencies
-git clone https://github.com/YOUR_USERNAME/Antigravity.git
-cd Antigravity
+git clone https://github.com/Amanat2009/Friend
 python -m venv venv
 source venv/Scripts/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -155,5 +154,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <p align="center">
-  Generated with ❤️ by Antigravity AI
+  Generated with ❤️ by Aman~
 </p>
