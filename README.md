@@ -2,7 +2,7 @@
 
 A fast, fully offline voice assistant powered by local AI models. Zero cloud APIs.
 
-## Architecture
+## Architectures
 
 ```
 Ollama (Vulkan GPU) ← standard local deployment
