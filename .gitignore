@@ -4,3 +4,4 @@ __pycache__/
 *.onnx
 *.bin
 *.log
+core_memory.json

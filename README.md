@@ -142,7 +142,7 @@ The assistant remembers things about you across sessions using a two-layer syste
 
 ## Troubleshooting
 
-| Issues | Fix |
+| Issue | Fix |
 |-------|-----|
 | Connection error during generation | Ensure **Ollama** is running in the background |
 | Ollama not using GPU | Verify that `OLLAMA_VULKAN=1` is set in your system environment variables and Ollama was restarted |
