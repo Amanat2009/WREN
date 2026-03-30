@@ -1,153 +1,159 @@
-# 🎙️ Local Voice Assistant
+# 🛸 Antigravity: The Ultimate Local AI Friend
 
-A fast, fully offline voice assistant powered by local AI models. Zero cloud APIs.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Ollama](https://img.shields.io/badge/Ollama-Qwen3--fast-orange.svg)](https://ollama.ai/)
+[![Vulkan](https://img.shields.io/badge/GPU-Vulkan%20Accelerated-green.svg)](https://vulkan.org/)
 
-## Architecture
+**Antigravity** is a high-performance, fully local voice assistant and "AI Buddy" designed for low-latency interaction and deep personal memory. It doesn't just answer questions—it grows with you, remembers your history, and visualizes its state through a premium 3D web interface.
 
+> [!IMPORTANT]
+> **100% Local & Private**: No audio or text ever leaves your machine. Powered by Ollama, Faster-Whisper, and Kokoro TTS.
+
+---
+
+## ✨ Key Features
+
+- **🏎️ Ultra-Low Latency**: Sentence-by-sentence TTS streaming—hear the response *while* the LLM is still generating.
+- **🧠 5-Layer Hybrid Memory**: A sophisticated architecture inspired by Letta (MemGPT) and Mem0.
+  - **Core Memory**: Fixed persona and human context.
+  - **Recall Memory**: Rolling conversation buffer.
+  - **Archival Memory**: Structured JSON fact tree.
+  - **Semantic Memory**: Vector search over life events (Mem0 + Qdrant).
+  - **Knowledge Graph**: Relationship mapping between entities (Neo4j).
+- **🤖 Agentic Self-Editing**: The assistant autonomously manages its own memory using internal tags like `[REMEMBER]`, `[UPDATE]`, and `[FORGET]`.
+- **🎨 Premium 3D UI**: A stunning Three.js-powered web dashboard with glassmorphism and real-time audio-reactive visuals.
+- **🎙️ Robust Voice Pipeline**: Wake-word detection (Porcupine) and highly accurate STT (Faster-Whisper).
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    User((User)) -->|Speech| Wake[Wake Word: Porcupine]
+    Wake -->|Beep| Rec[Mic Recording]
+    Rec -->|PCM| STT[STT: Faster-Whisper base]
+    STT -->|Text| LLM[LLM: Ollama Qwen3-fast]
+    
+    subgraph Memory_System [5-Layer Hybrid Memory]
+        L1[Core Memory]
+        L2[Recall History]
+        L3[Archival Facts]
+        L4[Semantic: Mem0]
+        L5[Graph: Neo4j]
+    end
+    
+    LLM <--> Memory_System
+    LLM -->|Stream| TTS[TTS: Kokoro v1.0]
+    TTS -->|Audio Chunk| Spk((Speakers))
+    
+    subgraph Frontend [Web Dashboard]
+        UI[Three.js Visualizer]
+        WS[WebSocket State]
+    end
+    
+    LLM -.-> WS
+    WS -.-> UI
 ```
-Ollama (Vulkan GPU) ← standard local deployment
-        ↓
-Wake Word (Porcupine) → 🔔 Beep → Record Speech → STT (faster-whisper) →
-LLM (streaming chat) → TTS (Kokoro, concurrent) → Memory (Mem0 + Letta) → Idle
-```
 
-**Key design**: LLM streams tokens → TTS speaks sentence-by-sentence as they arrive → you hear the response *while* the LLM is still thinking.
+---
 
-## Prerequisites
+## 🛠️ Tech Stack
 
+| Component | Technology | Description |
+|-----------|------------|-------------|
+| **LLM Engine** | [Ollama](https://ollama.ai/) | Qwen3-fast model (Vulkan GPU Accelerated) |
+| **STT** | [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper) | `base` model with beam search |
+| **TTS** | [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx) | State-of-the-art open-source TTS |
+| **Wake Word** | [Porcupine](https://picovoice.ai/platform/porcupine/) | Industry-leading wake word detection |
+| **Memory** | Letta + Mem0 + Neo4j | Multi-layered hybrid retrieval system |
+| **Backend** | Python / FastAPI | Real-time orchestration and WebSocket streaming |
+| **Frontend** | Three.js / CSS | Premium 3D audio-reactive visualizer |
+
+---
+
+## 🚀 Installation
+
+### 1. Prerequisites
 - **Python 3.9+**
-- **Ollama** installed on your system
-- A working **microphone** and **speakers**
-- **Windows** (tested on Windows 10/11)
-- **AMD GPU with Vulkan support** (tested on RX 6500 XT)
+- **Ollama** (v0.1.30+)
+- **Windows** 10/11 (Optimized for AMD GPUs via Vulkan)
 
-## Installation
+### 2. GPU Optimization (AMD)
+To enable Vulkan acceleration for Ollama:
+```powershell
+setx OLLAMA_VULKAN 1
+```
+*Restart Ollama from the system tray after running this.*
 
-### 1. Set Up Ollama with Vulkan
-
-1. Download and install **Ollama**.
-2. Set the `OLLAMA_VULKAN=1` environment variable to enable Vulkan acceleration for your AMD GPU. Open PowerShell and run:
-   ```bash
-   setx OLLAMA_VULKAN 1
-   ```
-3. Restart your terminal (and fully quit/restart the Ollama app from the system tray) so the environment variable takes effect.
-4. Pull the required models:
-   ```bash
-   ollama pull qwen3-fast
-   ```
-
-### 2. Create Virtual Environment
-
+### 3. Setup Models
 ```bash
-cd c:\Users\amana\Desktop\Antigravity\Antigravity_
+# Pull LLM and Embedding models
+ollama pull qwen3-fast
+ollama pull nomic-embed-text
+
+# Clone and install dependencies
+git clone https://github.com/YOUR_USERNAME/Antigravity.git
+cd Antigravity
 python -m venv venv
-venv\Scripts\activate
-```
-
-### 3. Install Python Dependencies
-
-```bash
+source venv/Scripts/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
 
-### 4. Download TTS Model Files
-
-**Option A — Automatic:**
-```bash
+# Download TTS model files automatically
 python setup_models.py
 ```
 
-**Option B — Manual:**
-Download these two files into the project folder:
-- [kokoro-v1.0.onnx](https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx) (~300MB)
-- [voices-v1.0.bin](https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin) (~5MB)
-
-> **Note**: `faster-whisper` will download the Whisper `tiny` model (~75MB) on first run automatically.
-
-### 5. (Optional) Set Up Mem0 Semantic Search
-
-If you want semantic memory search (in addition to the reliable core memory), install Ollama and the embedding model:
+### 4. (Optional) Memory Upgrades
+For full semantic and graph memory, ensure **Neo4j** is running and install **Mem0**:
 ```bash
 pip install mem0ai
-ollama pull nomic-embed-text
-ollama serve
-```
-Core memory works without this — Mem0 is a bonus layer.
-
-## Running
-
-```bash
-python main.py
+# Setup your NEO4J credentials in .env
 ```
 
-The assistant will:
-1. Connect to your local Ollama instance
-2. Listen for the wake word
+---
 
-Say **"Porcupine"** to activate, speak your question, and the assistant will respond aloud.
+## 🎮 Usage
 
-## File Structure
+1. **Start the System**:
+   ```bash
+   python main.py
+   ```
+2. **Access the Dashboard**:
+   Open `http://localhost:8000` in your browser for the 3D visualizer.
+3. **Wake Word**:
+   Say **"Porcupine"**. If the 3D visualizer glows and you hear a beep, speak your request.
+4. **Personality Switch**:
+   You can change the assistant's vibe in `config.py` (Default: `unfiltered`).
 
-```
-├── main.py              # Entry point, logging, signal handling
-├── assistant.py         # Pipeline orchestrator + llama-server lifecycle
-├── config.py            # All settings in one place
-├── wake_word.py         # Porcupine wake word detection
-├── stt.py               # faster-whisper speech-to-text
-├── llm.py               # llama-server streaming client (OpenAI-compatible)
-├── tts.py               # Kokoro TTS with chunked playback
-├── memory_manager.py    # Mem0 + Letta-inspired core memory
-├── memory.py            # (Legacy) JSON memory tree
-├── audio_utils.py       # Mic recording utilities
-├── setup_models.py      # Downloads Kokoro model files
-├── requirements.txt     # Python dependencies
-├── core_memory.json     # Auto-created: persistent user facts (Letta-style)
-├── memory.json          # (Legacy) old memory format
-├── kokoro-v1.0.onnx     # TTS model (downloaded via setup_models.py)
-├── voices-v1.0.bin      # TTS voices (downloaded via setup_models.py)
-└── README.md            # This file
-```
+---
 
-## Configuration
+## 🧩 Configuration
 
-Edit `config.py` to change:
+All settings are centralized in `config.py`. 
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `OLLAMA_MODEL` | `"qwen3-fast"` | The Ollama model to use for the assistant |
-| `WHISPER_MODEL_SIZE` | `"tiny"` | STT model (`tiny`, `base`, `small`) |
-| `KOKORO_VOICE` | `"af_heart"` | TTS voice |
-| `KOKORO_SPEED` | `1.15` | Speech speed multiplier |
-| `BEEP_FREQUENCY` | `800` | Wake word beep frequency (Hz) |
-| `SILENCE_DURATION` | `1.5` | Seconds of silence to stop recording |
-| `PORCUPINE_SENSITIVITIES` | `[0.7]` | Wake word sensitivity (0-1) |
+- `OLLAMA_MODEL`: Change target LLM.
+- `WHISPER_MODEL_SIZE`: Swap between `tiny`, `base`, or `small`.
+- `KOKORO_VOICE`: Select from a variety of [Kokoro voices](https://huggingface.co/hexgrad/Kokoro-82M).
+- `LLM_PERSONALITIES`: Customize how your friend speaks.
 
-### Vulkan Optimization
+---
 
-The RX 6500 XT has an AMD GPU. The system is configured to use Ollama with Vulkan enabled via the `OLLAMA_VULKAN=1` environment variable, ensuring fast token generation with AMD cards.
+## 🧠 Memory Self-Editing
 
-## Memory
+The assistant can update its own memory blocks dynamically. You will see tags like these in the terminal (hidden from voice output):
+- `[REMEMBER: User loves heavy metal]` -> High-level fact storage.
+- `[UPDATE: personal.job=Pilot]` -> Overwrites specific keys.
+- `[UPDATE_RELATIONSHIP: We are now best friends]` -> Evolves the friendship block.
 
-The assistant remembers things about you across sessions using a two-layer system:
+---
 
-1. **Core Memory** (Letta-inspired) — Always reliable, stored in `core_memory.json`
-   - **Persona block**: the assistant's personality and identity
-   - **Human block**: accumulated facts about you, auto-updated each conversation
-   - Tell it "My name is Alex" and it will remember forever
+## ⚖️ License
 
-2. **Mem0** (optional) — Semantic vector search for relevant memories
-   - Requires Ollama + nomic-embed-text
-   - Adds semantic search ("What does my friend like?")
-   - Core memory works without it
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Troubleshooting
+---
 
-| Issue | Fix |
-|-------|-----|
-| Connection error during generation | Ensure **Ollama** is running in the background |
-| Ollama not using GPU | Verify that `OLLAMA_VULKAN=1` is set in your system environment variables and Ollama was restarted |
-| Porcupine init fails | Check API key in `config.py`, or use fallback mode |
-| "Kokoro model not found" | Run `python setup_models.py` |
-| No audio output | Check default speakers in Windows Sound settings |
-| Mic not working | Check default mic in Windows Sound settings |
-| Slow STT | Change `WHISPER_MODEL_SIZE` to `"tiny"` in config | 
+<p align="center">
+  Generated with ❤️ by Antigravity AI
+</p>
