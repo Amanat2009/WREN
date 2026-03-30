@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Assistant Core</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <!-- Three.js from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+    <!-- 3D Canvas Background (Fixed) -->
+    <div id="canvas-container"></div>
+
+    <!-- Hero Section (Full viewport HUD) -->
+    <section id="hero-section">
+        <div id="ui-layer">
+            
+            <div id="left-panel">
+                <header>
+                    <div class="logo-dot"></div>
+                    <h1>A.I. Core</h1>
+                </header>
+                
+                <div id="status-display">
+                    <h2 id="status-text">Initializing...</h2>
+                    <p id="status-subtext">Waiting for connection</p>
+                </div>
+            </div>
+
+            <div id="subtitles-container">
+                <p id="user-subtitle"></p>
+                <p id="ai-subtitle"></p>
+            </div>
+
+            <aside id="controls-panel">
+                <div class="glass-panel">
+                    <h3>Voice Meter</h3>
+                    <div class="meter-track">
+                        <div id="volume-bar" class="meter-fill"></div>
+                    </div>
+                    <div class="divider"></div>
+                    <h3>Personality Protocol</h3>
+                    <p class="section-desc">Select the behavioral constraints for the AI core.</p>
+                    <div class="radio-group">
+                        <label class="radio-card">
+                            <input type="radio" name="personality" value="unfiltered" checked>
+                            <span class="card-content">
+                                <span class="card-title">Unfiltered (Raw)</span>
+                                <span class="card-desc">Uncensored, truthful, detailed, uses slang. No filters.</span>
+                            </span>
+                        </label>
+                        <label class="radio-card">
+                            <input type="radio" name="personality" value="polite">
+                            <span class="card-content">
+                                <span class="card-title">Polite Helper</span>
+                                <span class="card-desc">Family-friendly, kind, and extremely brief.</span>
+                            </span>
+                        </label>
+                        <label class="radio-card">
+                            <input type="radio" name="personality" value="professional">
+                            <span class="card-content">
+                                <span class="card-title">Professional</span>
+                                <span class="card-desc">Formal, factual, straight to the point. No small talk.</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+            </aside>
+            
+        </div>
+        
+        <!-- Scroll Down Indicator -->
+        <div class="scroll-indicator">
+            <p>Scroll to explore</p>
+            <i class="fa-solid fa-chevron-down scroll-bounce"></i>
+        </div>
+    </section>
+
+    <!-- Scrolling Content Sections -->
+    <main id="content-sections">
+        
+        <!-- Features Grid -->
+        <section class="content-block features-block">
+            <h2 class="section-heading">Core Capabilities</h2>
+            <div class="features-grid">
+                
+                <div class="feature-card glass-panel">
+                    <div class="feature-icon"><i class="fa-solid fa-microchip"></i></div>
+                    <h3>Local & Private</h3>
+                    <p>Powered primarily by local models. Your data never leaves your hardware unless explicitly requested. Instant offline inference.</p>
+                </div>
+
+                <div class="feature-card glass-panel">
+                    <div class="feature-icon"><i class="fa-solid fa-brain"></i></div>
+                    <h3>Self-Editing Memory</h3>
+                    <p>Powered by Letta and Mem0. It remembers your preferences, emotions, and dynamically updates its own context across sessions.</p>
+                </div>
+
+                <div class="feature-card glass-panel">
+                    <div class="feature-icon"><i class="fa-solid fa-bolt"></i></div>
+                    <h3>Lightning Fast</h3>
+                    <p>Optimized low-latency transcription and synthesized TTS pipeline outperforming standard cloud assistants.</p>
+                </div>
+
+                <div class="feature-card glass-panel">
+                    <div class="feature-icon"><i class="fa-solid fa-project-diagram"></i></div>
+                    <h3>Knowledge Graph</h3>
+                    <p>Neo4j integration maps the entities and projects you talk about to build a rich topological understanding of your life.</p>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- Social Sharing -->
+        <section class="content-block share-block">
+            <h2 class="section-heading">Share With Friends</h2>
+            <p class="share-subtitle">Love your A.I. Buddy? Let the world know and help us build the community!</p>
+            
+            <div class="share-actions">
+                <button class="share-btn twitter">
+                    <i class="fa-brands fa-x-twitter"></i> Share on X
+                </button>
+                <button class="share-btn linkedin">
+                    <i class="fa-brands fa-linkedin-in"></i> Post to LinkedIn
+                </button>
+                <div class="copy-link-wrapper">
+                    <input type="text" readonly value="https://github.com/Antigravity" id="share-link-input" class="glass-input">
+                    <button class="copy-btn" id="copy-btn"><i class="fa-regular fa-copy"></i></button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="logo-dot"></div>
+            <p>A.I. Core © 2026. Built with Antigravity.</p>
+        </div>
+    </footer>
+
+    <!-- Application Logic -->
+    <script src="/static/script.js"></script>
+</body>
+</html>

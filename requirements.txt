@@ -1,0 +1,11 @@
+faster-whisper
+sounddevice
+numpy
+scipy
+pvporcupine
+mem0ai
+requests
+fastapi
+uvicorn
+websockets
+pydantic
