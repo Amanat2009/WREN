@@ -37,8 +37,12 @@ const updateUI = (data) => {
     currentVolume = data.volume;
     
     // Subtitles Update
-    userSubtitle.textContent = data.user_text ? `"${data.user_text}"` : "";
-    aiSubtitle.textContent = data.response_text || "";
+    if (data.user_text !== undefined) {
+        userSubtitle.textContent = data.user_text ? `"${data.user_text}"` : "";
+    }
+    if (data.response_text !== undefined) {
+        aiSubtitle.textContent = data.response_text || "";
+    }
     
     // Smooth width update
     volumeBar.style.width = `${currentVolume * 100}%`;

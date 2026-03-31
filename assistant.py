@@ -99,12 +99,14 @@ class Assistant:
         while self._running:
             try:
                 # ── Reset state for new interaction ──
-                shared_state.current_user_text = ""
-                shared_state.current_response_text = ""
                 shared_state.current_status = "idle"
                 detected = self.wake_detector.wait_for_wake_word()
                 if not detected or not self._running:
                     continue
+
+                # Clear text state after wake word is detected to preserve subtitles
+                shared_state.current_user_text = ""
+                shared_state.current_response_text = ""
 
                 # ── Step 2: BEEP + Acknowledge wake ──
                 shared_state.current_status = "listening"

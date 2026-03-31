@@ -56,9 +56,6 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("🌐 Web Client Connected to State Stream")
     
-    last_user_text = ""
-    last_response_text = ""
-
     try:
         while True:
             # 🏎️ Efficiency: Only include long text strings if they've updated
@@ -69,15 +66,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 "status": shared_state.current_status,
                 "volume": shared_state.current_volume,
                 "personality": shared_state.current_personality,
+                "user_text": user_text,
+                "response_text": response_text
             }
-
-            if user_text != last_user_text:
-                payload["user_text"] = user_text
-                last_user_text = user_text
-            
-            if response_text != last_response_text:
-                payload["response_text"] = response_text
-                last_response_text = response_text
 
             await websocket.send_json(payload)
             # Sleep for ~33ms to achieve ~30fps update rate

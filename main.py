@@ -21,7 +21,32 @@ def bootstrap_services():
     # Letta REST server is no longer fundamentally required as memory 
     # is handled locally by the custom memory_manager.py module.
     # Mem0 background setup is handled automatically in memory_manager.
-    pass
+    # Neo4j is configured for Aura (cloud), so no local startup is needed.
+    
+    print("⏳ Checking background services...")
+    
+    # Check and start Ollama
+    ollama_url = f"{config.OLLAMA_BASE_URL}/"
+    try:
+        req = urllib.request.Request(ollama_url)
+        with urllib.request.urlopen(req, timeout=1):
+            pass
+        print("✅ Ollama is already running.")
+    except Exception:
+        print("⏳ Ollama not found. Starting Ollama server in the background...")
+        try:
+            creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000) if sys.platform == "win32" else 0
+            subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=creation_flags
+            )
+            time.sleep(3)  # Give it a few seconds to bind port
+            print("✅ Ollama started successfully.")
+        except FileNotFoundError:
+            print("❌ 'ollama' command not found. Please ensure Ollama is installed and in your PATH.")
+
 
 
 def setup_logging():
