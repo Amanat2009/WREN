@@ -53,20 +53,22 @@ def calibrate_ambient_noise(duration_sec: float = 1.0):
         logger.error(f"❌ Microphone calibration failed: {e}. Using default threshold.")
 
 
-def record_speech() -> np.ndarray:
+def record_speech(timeout_sec: float = 0.0, chunk_callback=None) -> np.ndarray:
     """
     Record speech from the default microphone.
 
     Listens until either:
       - SILENCE_DURATION seconds of consecutive silence, or
       - RECORD_MAX_SECONDS total elapsed.
+      - If timeout_sec > 0 and no speech starts before timeout, returns empty.
 
     Returns:
         numpy int16 array of recorded audio at SAMPLE_RATE Hz,
-        with trailing silence trimmed.
+        with trailing silence trimmed (or empty array if timed out).
     """
     chunk_samples = int(config.SAMPLE_RATE * config.RECORD_CHUNK_MS / 1000)
     max_chunks = int(config.RECORD_MAX_SECONDS * 1000 / config.RECORD_CHUNK_MS)
+    max_wait_chunks = int(timeout_sec * 1000 / config.RECORD_CHUNK_MS) if timeout_sec > 0 else 0
     silence_chunks_needed = int(config.SILENCE_DURATION * 1000 / config.RECORD_CHUNK_MS)
 
     logger.info("🎙️  Recording... (speak now)")
@@ -76,6 +78,7 @@ def record_speech() -> np.ndarray:
     silence_count = 0
     speech_detected = False
     last_speech_pos = 0
+    last_chunk_sent_pos = 0
 
     try:
         with sd.InputStream(
@@ -85,6 +88,10 @@ def record_speech() -> np.ndarray:
             blocksize=chunk_samples,
         ) as stream:
             for i in range(max_chunks):
+                if not speech_detected and max_wait_chunks > 0 and i >= max_wait_chunks:
+                    logger.info("⏳ Continuous listening timed out.")
+                    return np.array([], dtype=np.int16)
+
                 try:
                     chunk, overflowed = stream.read(chunk_samples)
                     if overflowed:
@@ -117,6 +124,12 @@ def record_speech() -> np.ndarray:
                 if speech_detected and silence_count >= silence_chunks_needed:
                     logger.info("🔇  Silence detected — stopping recording.")
                     break
+                    
+                # Yield intermediate chunks for streaming STT
+                if speech_detected and chunk_callback:
+                    if write_pos - last_chunk_sent_pos >= config.SAMPLE_RATE * 0.5:  # Every 0.5s
+                        chunk_callback(buffer[:write_pos].copy())
+                        last_chunk_sent_pos = write_pos
     except Exception as e:
         logger.error(f"❌ Failed to open microphone: {e}")
         return np.array([], dtype=np.int16)

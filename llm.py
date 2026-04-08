@@ -29,6 +29,7 @@ def warmup():
             "prompt": "Hi",
             "system": "Reply with one word.",
             "stream": False,
+            "keep_alive": -1,
             "options": {"num_predict": 2},
         }
         resp = _session.post(
@@ -57,6 +58,8 @@ def stream_response(
     Yields:
         Text chunks (partial words/sentences) as they arrive from the LLM.
     """
+    from datetime import datetime
+
     # Build system prompt dynamically based on Web UI selection
     personality_key = shared_state.current_personality
     system_prompt = config.LLM_PERSONALITIES.get(
@@ -70,6 +73,13 @@ def stream_response(
             f"{memory_context}"
         )
 
+    # Inject real-time awareness (date, time, day of week)
+    now = datetime.now()
+    system_prompt += (
+        f"\n\n=== CURRENT TIME ===\n"
+        f"It is {now.strftime('%I:%M %p')} on {now.strftime('%A, %B %d, %Y')}."
+    )
+
     # Add self-edit memory instructions (Letta Layer 5)
     if update_ui:  # Only for user-facing responses, not internal calls
         system_prompt += config.SELF_EDIT_INSTRUCTIONS
@@ -79,6 +89,7 @@ def stream_response(
         "prompt": user_message,
         "system": system_prompt,
         "stream": True,
+        "keep_alive": -1,
         "options": {
             "temperature": config.LLM_TEMPERATURE,
             "top_p": config.LLM_TOP_P,

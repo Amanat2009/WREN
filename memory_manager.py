@@ -66,6 +66,7 @@ def _direct_ollama_generate(prompt: str, system: str = "", max_tokens: int = 300
         "prompt": prompt,
         "system": system,
         "stream": False,
+        "keep_alive": -1,
         "options": {
             "temperature": 0,
             "num_predict": max_tokens,

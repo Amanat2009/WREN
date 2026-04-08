@@ -43,16 +43,16 @@ class WakeWordDetector:
             logger.warning("   Falling back to energy-based wake detection (clap/loud sound).")
             self._use_fallback = True
 
-    def wait_for_wake_word(self) -> bool:
+    def wait_for_wake_word(self, stop_event: threading.Event = None) -> bool:
         """
         Block until the wake word (or fallback trigger) is detected.
-        Returns True when triggered, False if shut down.
+        Returns True when triggered, False if shut down or stop_event is set.
         """
         if self._use_fallback:
-            return self._fallback_detect()
-        return self._porcupine_detect()
+            return self._fallback_detect(stop_event)
+        return self._porcupine_detect(stop_event)
 
-    def _porcupine_detect(self) -> bool:
+    def _porcupine_detect(self, stop_event: threading.Event = None) -> bool:
         """Continuous Porcupine detection loop."""
         frame_length = self._porcupine.frame_length
         sample_rate = self._porcupine.sample_rate
@@ -66,6 +66,9 @@ class WakeWordDetector:
             blocksize=frame_length,
         ) as stream:
             while True:
+                if stop_event and stop_event.is_set():
+                    return False
+                
                 data, _ = stream.read(frame_length)
                 pcm = data.flatten()
 
@@ -79,7 +82,7 @@ class WakeWordDetector:
                     )
                     return True
 
-    def _fallback_detect(self) -> bool:
+    def _fallback_detect(self, stop_event: threading.Event = None) -> bool:
         """Simple energy-spike fallback: detects a loud sound (clap, etc.)."""
         chunk_samples = int(config.SAMPLE_RATE * config.RECORD_CHUNK_MS / 1000)
         threshold = config.SILENCE_THRESHOLD * 5  # Much louder than speech silence
@@ -93,6 +96,9 @@ class WakeWordDetector:
             blocksize=chunk_samples,
         ) as stream:
             while True:
+                if stop_event and stop_event.is_set():
+                    return False
+
                 data, _ = stream.read(chunk_samples)
                 energy = float(np.sqrt(np.mean(data.astype(np.float32) ** 2)))
                 if energy > threshold:

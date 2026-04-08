@@ -9,3 +9,5 @@ fastapi
 uvicorn
 websockets
 pydantic
+transformers
+torch

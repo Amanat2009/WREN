@@ -2,6 +2,9 @@
 shared_state.py — Global state shared between the Assistant pipeline and the Web Server.
 """
 
+import time
+import threading
+
 # The current activity phase of the voice assistant
 # States: "idle", "listening", "recording", "thinking", "speaking"
 current_status = "idle"
@@ -17,3 +20,18 @@ current_response_text = ""
 
 # The currently selected personality layout key
 current_personality = "unfiltered"
+
+# The detected emotion of the user's latest input
+# Values: "joyful", "excited", "positive", "neutral", "negative", "distressed", "sarcastic"
+current_emotion = "neutral"
+
+# Current mood energy level and response mode (from mood_tracker)
+current_mood_energy = "moderate"
+current_mood_mode = "engage"
+
+# Timestamp of the last user interaction (for proactive idle detection)
+last_interaction_time = time.time()
+
+# Mutex to prevent proactive speech from colliding with active interactions
+interaction_lock = threading.Lock()
+

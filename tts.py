@@ -22,6 +22,7 @@ import numpy as np
 import sounddevice as sd
 
 import config
+import shared_state
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class TTSEngine:
         except Exception as e:
             logger.warning(f"⚠️  TTS warmup failed (non-fatal): {e}")
 
-    def speak_stream(self, text_generator: Generator[str, None, None]):
+    def speak_stream(self, text_generator: Generator[str, None, None], interrupt_callback=None):
         """
         Consume an LLM token stream and speak it in real time.
 
@@ -137,9 +138,17 @@ class TTSEngine:
         # Signal end
         self._text_queue.put(None)
 
-        # Wait for both threads
-        synth_thread.join(timeout=60)
-        play_thread.join(timeout=60)
+        # Wait for both threads indefinitely or until interrupted
+        while True:
+            if not synth_thread.is_alive() and not play_thread.is_alive():
+                break
+                
+            if interrupt_callback and interrupt_callback():
+                logger.info("🛑 Barge-in detected! Intercepting TTS.")
+                self.stop()
+                break
+                
+            time.sleep(0.05)
 
         logger.info(f"🔊 TTS complete — {chunk_count} chunks spoken.")
 
@@ -182,10 +191,18 @@ class TTSEngine:
 
             try:
                 t0 = time.perf_counter()
+
+                # ── Emotion-aware voice/speed modulation ──
+                emotion = shared_state.current_emotion
+                voice, speed = config.EMOTION_TTS_MAP.get(
+                    emotion,
+                    (config.KOKORO_VOICE, config.KOKORO_SPEED),
+                )
+
                 samples, sample_rate = self.kokoro.create(
                     text,
-                    voice=config.KOKORO_VOICE,
-                    speed=config.KOKORO_SPEED,
+                    voice=voice,
+                    speed=speed,
                     lang="en-us",
                 )
 
@@ -194,7 +211,8 @@ class TTSEngine:
 
                 elapsed = time.perf_counter() - t0
                 logger.debug(
-                    f"🗣️  Synth chunk {chunk_index} ({elapsed:.2f}s): \"{text[:40]}...\""
+                    f"🗣️  Synth chunk {chunk_index} ({elapsed:.2f}s) "
+                    f"[{emotion}→{voice}@{speed}x]: \"{text[:40]}...\""
                 )
                 self._audio_queue.put((samples, sample_rate))
                 chunk_index += 1
@@ -231,10 +249,25 @@ class TTSEngine:
                     stream.start()
 
                 # Write directly into the continuous stream — no gaps between chunks
-                stream.write(samples.reshape(-1, 1))
+                try:
+                    stream.write(samples.reshape(-1, 1))
+                except sd.PortAudioError as pe:
+                    logger.warning(f"⚠️ Audio stream error/underflow: {pe}. Recreating stream...")
+                    try:
+                        stream.stop()
+                        stream.close()
+                    except Exception:
+                        pass
+                    stream = sd.OutputStream(
+                        samplerate=sample_rate,
+                        channels=1,
+                        dtype="float32",
+                    )
+                    stream.start()
+                    stream.write(samples.reshape(-1, 1))
 
         except Exception as e:
-            logger.error(f"❌ Audio playback error: {e}")
+            logger.error(f"❌ Audio playback worker crashed: {e}")
         finally:
             if stream is not None:
                 try:

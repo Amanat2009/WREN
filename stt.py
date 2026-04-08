@@ -42,12 +42,13 @@ class SpeechToText:
             pass
         logger.info("✅ Whisper warmed up.")
 
-    def transcribe(self, audio: np.ndarray) -> str:
+    def transcribe(self, audio: np.ndarray, is_final: bool = True) -> str:
         """
         Transcribe a numpy int16 audio array to text.
 
         Args:
             audio: numpy int16 array at SAMPLE_RATE Hz.
+            is_final: whether this is a final transcript (to enable logging)
 
         Returns:
             Transcribed text string (stripped).
@@ -82,5 +83,6 @@ class SpeechToText:
 
         full_text = " ".join(text_parts).strip()
         elapsed = time.perf_counter() - t0
-        logger.info(f"📝 Transcription ({elapsed:.2f}s): \"{full_text}\"")
+        if is_final:
+            logger.info(f"📝 Transcription ({elapsed:.2f}s): \"{full_text}\"")
         return full_text
