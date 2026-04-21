@@ -67,6 +67,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "volume": shared_state.current_volume,
                 "personality": shared_state.current_personality,
                 "emotion": shared_state.current_emotion,
+                "gf_emotion": getattr(shared_state, 'current_gf_emotion', 'neutral'),
                 "mood_energy": shared_state.current_mood_energy,
                 "mood_mode": shared_state.current_mood_mode,
                 "user_text": user_text,

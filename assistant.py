@@ -227,6 +227,11 @@ class Assistant:
                 # ── Step 5b: Log mood + analyze trend (<1ms) ──
                 self.mood.log(emo, user_text)
                 mood = self.mood.analyze(emo, user_text)
+                
+                # Sync mood state back to WebUI
+                shared_state.current_mood_energy = mood.energy
+                shared_state.current_mood_mode = mood.response_mode
+                
                 logger.info(
                     f"📊 Mood: trend={mood.trend}, energy={mood.energy}, "
                     f"concern={mood.concern}, mode={mood.response_mode}"

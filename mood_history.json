@@ -1,0 +1,20 @@
+[
+  {
+    "ts": 1776767479.7852182,
+    "date": "2026-04-21",
+    "category": "negative",
+    "compound": 0.3818463087081909,
+    "valence": -0.267,
+    "is_humor": false,
+    "preview": "Will you be my girlfriend?"
+  },
+  {
+    "ts": 1776767526.7368414,
+    "date": "2026-04-21",
+    "category": "neutral",
+    "compound": 0.9068080186843872,
+    "valence": -0.002,
+    "is_humor": false,
+    "preview": "Do you know which class I study in and what's my n"
+  }
+]

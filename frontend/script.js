@@ -5,6 +5,11 @@ const volumeBar = document.getElementById("volume-bar");
 const radioButtons = document.querySelectorAll('input[name="personality"]');
 const userSubtitle = document.getElementById("user-subtitle");
 const aiSubtitle = document.getElementById("ai-subtitle");
+const userEmotionTag = document.getElementById("user-emotion-tag");
+const gfEmotionTag = document.getElementById("gf-emotion-tag");
+const moodEnergyTag = document.getElementById("mood-energy-tag");
+const moodModeTag = document.getElementById("mood-mode-tag");
+const chatHistory = document.getElementById("chat-history");
 
 // WebSocket Connection
 let ws;
@@ -32,16 +37,67 @@ const connectWebSocket = () => {
 // UI State Updates
 let currentVolume = 0.0;
 let currentStatus = "idle";
+let lastUserText = '';
+let lastAiText = '';
+
+const pushToHistory = (uText, aText) => {
+    if (!uText && !aText) return;
+    
+    const turnDiv = document.createElement("div");
+    turnDiv.className = "history-turn";
+    
+    if (uText) {
+        const uP = document.createElement("p");
+        uP.className = "history-user";
+        uP.textContent = `"${uText}"`;
+        turnDiv.appendChild(uP);
+    }
+    
+    if (aText) {
+        const aP = document.createElement("p");
+        aP.className = "history-ai";
+        aP.textContent = aText;
+        turnDiv.appendChild(aP);
+    }
+    
+    chatHistory.appendChild(turnDiv);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+};
 
 const updateUI = (data) => {
     currentVolume = data.volume;
     
-    // Subtitles Update
-    if (data.user_text !== undefined) {
-        userSubtitle.textContent = data.user_text ? `"${data.user_text}"` : "";
+    // Subtitles Update & History Logging
+    if (data.user_text !== undefined || data.response_text !== undefined) {
+        // If text is cleared, push the previously completed text into history log
+        if (data.user_text === "" && data.response_text === "" && (lastUserText || lastAiText)) {
+            pushToHistory(lastUserText, lastAiText);
+            lastUserText = "";
+            lastAiText = "";
+        }
+
+        if (data.user_text !== undefined) {
+            userSubtitle.textContent = data.user_text ? `"${data.user_text}"` : "";
+            if (data.user_text) lastUserText = data.user_text;
+        }
+        if (data.response_text !== undefined) {
+            aiSubtitle.textContent = data.response_text || "";
+            if (data.response_text) lastAiText = data.response_text;
+        }
     }
-    if (data.response_text !== undefined) {
-        aiSubtitle.textContent = data.response_text || "";
+    
+    // Stats Update
+    if (data.emotion !== undefined && userEmotionTag) {
+        userEmotionTag.textContent = data.emotion;
+    }
+    if (data.gf_emotion !== undefined && gfEmotionTag) {
+        gfEmotionTag.textContent = data.gf_emotion;
+    }
+    if (data.mood_energy !== undefined && moodEnergyTag) {
+        moodEnergyTag.textContent = data.mood_energy;
+    }
+    if (data.mood_mode !== undefined && moodModeTag) {
+        moodModeTag.textContent = data.mood_mode;
     }
     
     // Smooth width update

@@ -191,6 +191,7 @@ class CoreMemory:
             "human": config.CORE_MEMORY_HUMAN_DEFAULT,
             "relationship": config.CORE_MEMORY_RELATIONSHIP_DEFAULT,
             "facts": {},
+            "temporary_notes": [],      # Scratchpad
             "first_met_date": today,    # Set on very first boot
             "total_conversations": 0,
             "moments": [],              # Memorable emotional scenes (max 10)
@@ -207,6 +208,7 @@ class CoreMemory:
                     data.setdefault("human", config.CORE_MEMORY_HUMAN_DEFAULT)
                     data.setdefault("relationship", config.CORE_MEMORY_RELATIONSHIP_DEFAULT)
                     data.setdefault("facts", {})
+                    data.setdefault("temporary_notes", [])
                     # New fields — migrate existing installs gracefully
                     if not data.get("first_met_date"):
                         data["first_met_date"] = today
@@ -250,6 +252,21 @@ class CoreMemory:
         with self._lock:
             self.data["relationship"] = new_text
             self._save()
+
+    def add_temp_note(self, note: str):
+        """Add a temporary state to the scratchpad."""
+        with self._lock:
+            notes = self.data.setdefault("temporary_notes", [])
+            notes.append(note)
+            self._save()
+            logger.info(f"📝 Temporary Scratchpad ADD: {note}")
+
+    def clear_temp_notes(self):
+        """Wipe the temporary scratchpad."""
+        with self._lock:
+            self.data["temporary_notes"] = []
+            self._save()
+            logger.info("🧹 Temporary Scratchpad CLEARED")
 
     def merge_facts(self, new_facts: dict):
         """Merge new facts into the archival facts tree. Overwrites on conflict."""
@@ -316,24 +333,20 @@ class CoreMemory:
 
     def remember_fact(self, fact_text: str):
         """
-        Store a free-form fact (from [REMEMBER: ...]) using a simple heuristic
-        to categorize it, or put it under 'important_info'.
+        Store a PERMANENT free-form fact into core_traits.
         """
         with self._lock:
             facts = self.data.setdefault("facts", {})
-            info = facts.setdefault("important_info", {})
+            traits = facts.setdefault("core_traits", [])
 
-            # Create a key from the fact text
-            key = fact_text[:40].strip().lower()
-            key = re.sub(r'[^a-z0-9_\s]', '', key)
-            key = re.sub(r'\s+', '_', key).strip('_')
-            if not key:
-                key = f"fact_{len(info)}"
+            # Migration: Ensure traits is a list
+            if isinstance(traits, dict):
+                traits = facts["core_traits"] = list(traits.values())
 
-            info[key] = fact_text
+            traits.append(fact_text)
             self._rebuild_human_summary()
             self._save()
-            logger.info(f"🧠 Self-edit REMEMBER: {fact_text[:60]}")
+            logger.info(f"🧠 Permanent Self-edit REMEMBER: {fact_text[:60]}")
 
     def _rebuild_human_summary(self):
         """Rebuild the human block from the facts tree as natural language."""
@@ -382,7 +395,13 @@ class CoreMemory:
 
         facts_detail = self.get_facts_summary()
         if facts_detail:
-            sections.append(f"\n=== DETAILED FACTS ===\n{facts_detail}")
+            sections.append(f"\n=== DETAILED PERMANENT FACTS ===\n{facts_detail}")
+
+        # Inject scratchpad
+        temp_notes = self.data.get("temporary_notes", [])
+        if temp_notes:
+            notes_str = "\n".join(f"  - {note}" for note in temp_notes)
+            sections.append(f"\n=== TEMPORARY SCRATCHPAD (Current Session State) ===\n{notes_str}")
 
         # Inject warmth modifier
         warmth_label = self.get_warmth_label()
@@ -593,9 +612,15 @@ class SelfEditEngine:
     _MOMENT_RE = re.compile(
         r'\[MOMENT:\s*(.+?)\]', re.IGNORECASE
     )
+    _TEMP_RE = re.compile(
+        r'\[TEMP:\s*(.+?)\]', re.IGNORECASE
+    )
+    _CLEAR_TEMP_RE = re.compile(
+        r'\[CLEAR_TEMP\]', re.IGNORECASE
+    )
     # Master pattern to strip ALL self-edit tags from text
     _ALL_TAGS_RE = re.compile(
-        r'\[(REMEMBER|UPDATE|UPDATE_RELATIONSHIP|FORGET|SEARCH|MOMENT):\s*[^\]]*\]', re.IGNORECASE
+        r'\[(REMEMBER|UPDATE|UPDATE_RELATIONSHIP|FORGET|SEARCH|MOMENT|TEMP|CLEAR_TEMP)(?::\s*[^\]]*)?\]', re.IGNORECASE
     )
 
     def __init__(self, core_memory: CoreMemory):
@@ -655,6 +680,22 @@ class SelfEditEngine:
                     logger.info(f"💕 Self-edit MOMENT saved: {moment[:60]}")
                 except Exception as e:
                     logger.warning(f"⚠️  MOMENT failed: {e}")
+
+        # Extract and execute TEMP tags
+        for match in self._TEMP_RE.finditer(response_text):
+            temp_text = match.group(1).strip()
+            if temp_text:
+                try:
+                    self.core.add_temp_note(temp_text)
+                except Exception as e:
+                    logger.warning(f"⚠️  TEMP failed: {e}")
+
+        # Extract and execute CLEAR_TEMP
+        if self._CLEAR_TEMP_RE.search(response_text):
+            try:
+                self.core.clear_temp_notes()
+            except Exception as e:
+                logger.warning(f"⚠️  CLEAR_TEMP failed: {e}")
 
         # Strip all tags from the response
         cleaned = self._ALL_TAGS_RE.sub('', response_text).strip()
@@ -737,24 +778,27 @@ class MemoryManager:
         if not user_query:
             return "\n".join(parts)
 
-        # Pre-flight: Classify Intent
-        resp = _direct_ollama_generate(
-            prompt=user_query,
-            system=INTENT_CLASSIFIER_SYSTEM,
-            max_tokens=150
-        )
-        
         intent = {"named_entities": []}
-        if resp:
-            try:
-                # Extract JSON if wrapped in markdown
-                if "```" in resp:
-                    start = resp.find("{")
-                    end = resp.rfind("}") + 1
-                    resp = resp[start:end]
-                intent = json.loads(resp)
-            except Exception as e:
-                logger.debug(f"Intent parsing failed: {e}.")
+        
+        # Pre-flight: Classify Intent ONLY if Neo4j is ready and query is substantial
+        # This skips the blocking LLM call for short phrases like "yeah", "ok", "hello"
+        if self.neo4j._ready and len(user_query.strip().split()) >= 3:
+            resp = _direct_ollama_generate(
+                prompt=user_query,
+                system=INTENT_CLASSIFIER_SYSTEM,
+                max_tokens=150
+            )
+            
+            if resp:
+                try:
+                    # Extract JSON if wrapped in markdown
+                    if "```" in resp:
+                        start = resp.find("{")
+                        end = resp.rfind("}") + 1
+                        resp = resp[start:end]
+                    intent = json.loads(resp)
+                except Exception as e:
+                    logger.debug(f"Intent parsing failed: {e}.")
 
         # Layer 4: Mem0 (Always search for context)
         if self._mem0_ready:
@@ -893,8 +937,17 @@ class MemoryManager:
                 return ""
 
             memories = []
+            threshold = getattr(config, "MEM0_SCORE_THRESHOLD", 0.6)
             for mem in mem_list:
-                text = mem.get("memory", "") if isinstance(mem, dict) else str(mem)
+                if isinstance(mem, dict):
+                    # Qdrant/Mem0 returns a score. We ignore low-confidence matches.
+                    score = mem.get("score", 1.0)
+                    if score < threshold:
+                        continue
+                    text = mem.get("memory", "")
+                else:
+                    text = str(mem)
+                    
                 if text:
                     memories.append(f"  - {text}")
 

@@ -122,6 +122,15 @@ class TTSEngine:
                 should_flush = True
 
             if should_flush:
+                # Protect Letta memory tags: do not flush if an unclosed '[' exists
+                last_open = buffer.rfind('[')
+                if last_open != -1:
+                    last_close = buffer.rfind(']', last_open)
+                    # Use a 300 char fallback to prevent hanging if LLM hallucinates an open bracket
+                    if last_close == -1 and (len(buffer) - last_open) < 300:
+                        should_flush = False
+
+            if should_flush:
                 flush_text, remaining = self._split_at_boundary(buffer)
                 cleaned = self._clean_text(flush_text)
                 if cleaned:
@@ -155,14 +164,17 @@ class TTSEngine:
     @staticmethod
     def _clean_text(text: str) -> str:
         """Strip markdown formatting and memory tags so TTS doesn't pronounce them."""
-        # Self-edit memory tags + search + moment: [REMEMBER: ...], [SEARCH: ...], [MOMENT: ...], etc.
-        text = re.sub(r'\[(REMEMBER|UPDATE|UPDATE_RELATIONSHIP|FORGET|SEARCH|MOMENT):\s*[^\]]*\]', '', text, flags=re.IGNORECASE)
+        # Self-edit memory tags + search + moment + temp
+        text = re.sub(r'\[(REMEMBER|UPDATE|UPDATE_RELATIONSHIP|FORGET|SEARCH|MOMENT|TEMP|CLEAR_TEMP)(?::\s*[^\]]*)?\]', '', text, flags=re.IGNORECASE)
         # Think tags (safety net)
         text = re.sub(r'</?think>', '', text, flags=re.IGNORECASE)
         # Markdown formatting
         text = re.sub(r'\*+', '', text)      # asterisks (bold / italic)
         text = re.sub(r'_+', ' ', text)       # underscores
         text = re.sub(r'`+', '', text)        # backticks
+        text = re.sub(r'~+', '', text)        # tildes
+        # Emojis and miscellaneous symbols (SMP plane and dingbats)
+        text = re.sub(r'[\U00010000-\U0010ffff\u2600-\u27BF]', '', text)
         text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)  # headers
         text = re.sub(r'\s{2,}', ' ', text)   # collapse extra whitespace
         return text.strip()

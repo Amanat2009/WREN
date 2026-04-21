@@ -187,12 +187,36 @@ class ProactiveEngine:
     def _cooldown_elapsed(self) -> bool:
         """Check if enough time has passed since the last proactive message."""
         elapsed = time.time() - self._last_proactive_time
-        return elapsed >= config.PROACTIVE_COOLDOWN_MINUTES * 60
+        
+        # Dynamic, randomized cooldown. Allows instant double-texts or 1-2 min gaps.
+        if not hasattr(self, '_current_cooldown_target'):
+            self._current_cooldown_target = random.choice([0, 30, 60, 90, 120])
+            
+        if elapsed >= self._current_cooldown_target:
+            # Re-roll for next time once passed
+            self._current_cooldown_target = random.choice([0, 30, 60, 90, 120])
+            return True
+            
+        return False
 
     def _is_idle_timeout(self) -> bool:
-        """Check if the user has been idle for longer than the timeout."""
+        """Check if the user has been idle for longer than the dynamic timeout."""
         elapsed = time.time() - shared_state.last_interaction_time
-        return elapsed >= config.PROACTIVE_IDLE_TIMEOUT_MINUTES * 60
+        
+        # The timeout target is randomized to make her feel alive, not robotic.
+        # Max is PROACTIVE_IDLE_TIMEOUT_MINUTES (now 3 mins).
+        if not hasattr(self, '_current_idle_target'):
+            # Choices: Instant (0s), 1 min, 2 mins, 3 mins
+            max_sec = config.PROACTIVE_IDLE_TIMEOUT_MINUTES * 60
+            self._current_idle_target = random.choice([0, 60, 120, max_sec])
+            
+        if elapsed >= self._current_idle_target:
+            # Re-roll for next time
+            max_sec = config.PROACTIVE_IDLE_TIMEOUT_MINUTES * 60
+            self._current_idle_target = random.choice([0, 60, 120, max_sec])
+            return True
+            
+        return False
 
     def _pick_trigger(self) -> str:
         """Randomly select a trigger type to keep messages varied and natural."""

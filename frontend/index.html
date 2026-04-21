@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Voice Assistant Core</title>
     
-    <!-- Google Fonts: Inter -->
+    <!-- Google Fonts: Outfit -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;800&display=swap" rel="stylesheet">
     
     <!-- Three.js from CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -37,11 +37,41 @@
                     <h2 id="status-text">Initializing...</h2>
                     <p id="status-subtext">Waiting for connection</p>
                 </div>
+                
+                <!-- NEW: Psychological Profile Panel -->
+                <div class="glass-panel profile-panel">
+                    <h3><i class="fa-solid fa-brain"></i> Psychological Profile</h3>
+                    
+                    <div class="stat-row">
+                        <span class="stat-label">User Emotion</span>
+                        <span class="stat-value" id="user-emotion-tag">Neutral</span>
+                    </div>
+                    
+                    <div class="stat-row">
+                        <span class="stat-label">Response Tone</span>
+                        <span class="stat-value highlight" id="gf-emotion-tag">Neutral</span>
+                    </div>
+
+                    <div class="divider"></div>
+                    
+                    <div class="stat-row">
+                        <span class="stat-label">Energy Level</span>
+                        <span class="stat-value" id="mood-energy-tag">Moderate</span>
+                    </div>
+                    
+                    <div class="stat-row">
+                        <span class="stat-label">Response Mode</span>
+                        <span class="stat-value" id="mood-mode-tag">Engage</span>
+                    </div>
+                </div>
             </div>
 
-            <div id="subtitles-container">
-                <p id="user-subtitle"></p>
-                <p id="ai-subtitle"></p>
+            <div id="subtitles-container" class="glass-subtitle-box">
+                <div id="chat-history"></div>
+                <div class="subtitle-active">
+                    <p id="user-subtitle"></p>
+                    <p id="ai-subtitle"></p>
+                </div>
             </div>
 
             <aside id="controls-panel">

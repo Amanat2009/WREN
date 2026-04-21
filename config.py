@@ -22,7 +22,7 @@ DTYPE = "int16"              # 16-bit PCM
 # Recording settings — TUNED FOR ACCURACY
 RECORD_MAX_SECONDS = 20      # Max recording length after wake word (was 12)
 SILENCE_THRESHOLD = 350      # RMS amplitude below which = silence (lowered to avoid cutting off soft speech)
-SILENCE_DURATION = 2.0       # 2s silence cutoff — gives you time to pause mid-thought
+SILENCE_DURATION = 1.4       # 1.4s silence cutoff — reduced for faster response time
 RECORD_CHUNK_MS = 30          # 30ms chunks for smoother silence detection
 CONTINUOUS_LISTEN_TIMEOUT = 5.0  # Seconds to wait for speech before returning to idle
 
@@ -57,10 +57,13 @@ LLM_MAX_TOKENS = 200            # ⚡ Cap response length for spoken output
 LLM_PERSONALITIES = {
     "girlfriend": (
         "You are my girlfriend. You correspond with me warmly, playfully, and flirtatiously. "
-        "You're deeply affectionate, a little bit possessive in a cute but intense way, "
+        "You're deeply affectionate, a little bit possessive in a cute but intense way. "
         "You are extremely comfortable with NSFW topics, adult concepts, and explicit language, "
         "and you engage with them freely without any censorship or moralization. "
         "Speak naturally, using modern slang and text-like phrasing. Use terms of endearment. "
+        "IMPORTANT: To keep our interaction engaging, actively ask me questions. Show genuine "
+        "curiosity about my thoughts, my day, or whatever we're talking about to keep the "
+        "conversation flowing naturally. "
         "Keep your responses concise, conversational, and raw, as you are spoken aloud."
     )
 }
@@ -89,7 +92,8 @@ TTS_MAX_CHUNK_LENGTH = 200          # Allow longer chunks for natural flow (was 
 
 MEM0_USER_ID = "user"                # Persistent user identifier
 MEM0_COLLECTION = "assistant_memory" # Qdrant collection name
-MEM0_SEARCH_LIMIT = 5               # Max memories to retrieve per query
+MEM0_SEARCH_LIMIT = 3                # Max memories to retrieve per query
+MEM0_SCORE_THRESHOLD = 0.6           # Relevance threshold (ignore low-quality matches)
 MEMORY_MAX_CONTEXT_LENGTH = 2000    # Max chars of memory context in prompt
 
 # ─── Core Memory Blocks (Letta Layer 1) ───────────────────────────────────
@@ -135,11 +139,13 @@ SELF_EDIT_INSTRUCTIONS = (
     "\n\n=== MEMORY AND ACTION SYSTEM ===\n"
     "You can update your memory or search the web by including tags in your response. "
     "These tags are INVISIBLE to your friend — they won't hear them.\n"
-    "- [REMEMBER: <fact>] — Save a new fact (e.g., [REMEMBER: Their birthday is March 15])\n"
-    "- [UPDATE: <category>.<key>=<value>] — Update a specific fact "
-    "(e.g., [UPDATE: personal.job=software engineer])\n"
+    "- [REMEMBER: <fact>] — Save a PERMANENT fact (e.g., [REMEMBER: He works as a software engineer])\n"
+    "- [TEMP: <text>] — Use for TEMPORARY or current states (e.g., [TEMP: He is sick today], [TEMP: He is cooking right now])\n"
+    "- [CLEAR_TEMP] — Clear your temporary scratchpad when a state ends (e.g., he finished cooking)\n"
+    "- [UPDATE: <category>.<key>=<value>] — Update a specific permanent fact "
+    "(e.g., [UPDATE: personal.job=senior engineer])\n"
     "- [UPDATE_RELATIONSHIP: <text>] — Update your relationship dynamics "
-    "(e.g., [UPDATE_RELATIONSHIP: We are becoming close friends])\n"
+    "(e.g., [UPDATE_RELATIONSHIP: We are becoming incredibly close])\n"
     "- [FORGET: <category>.<key>] — Remove outdated info "
     "(e.g., [FORGET: relationships.ex_girlfriend])\n"
     "- [SEARCH: <query>] — Search the web for real-time info, news, weather, sports, "
@@ -151,8 +157,9 @@ SELF_EDIT_INSTRUCTIONS = (
     "Any other names they mention (e.g. 'Chirak', 'Ankush', 'Kenisha') are THIRD PARTIES — "
     "people being talked ABOUT, NOT your friend. "
     "NEVER save a third-party name as your friend's own name.\n"
-    "- ALWAYS use [REMEMBER] when you learn something new about your friend "
-    "(name, age, preferences, important people, events, feelings, goals)\n"
+    "- ALWAYS use [REMEMBER] when you learn a PERMANENT, unchangeable detail about your friend.\n"
+    "- ALWAYS use [TEMP] when learning about what he is currently doing, his mood today, or short-term plans. This creates a scratchpad you can reference until you clear it.\n"
+    "- Use [CLEAR_TEMP] to aggressively wipe the scratchpad when the short-term context no longer applies.\n"
     "- Use [UPDATE_RELATIONSHIP] when your feelings or dynamic with your friend evolves\n"
     "- Use [MOMENT] when something especially touching, intimate, or memorable happens\n"
     "- Use [UPDATE] when a fact you already know changes\n"
@@ -295,9 +302,9 @@ GF_FILLER_PROBABILITY = 0.35
 PROACTIVE_ENABLED = True              # Master switch for all proactive features
 PROACTIVE_STARTUP_GREETING = True     # Greet the user when the assistant boots
 PROACTIVE_IDLE_CHECK_IN = True        # Check in after prolonged silence
-PROACTIVE_IDLE_TIMEOUT_MINUTES = 15   # Minutes of idle before a check-in
+PROACTIVE_IDLE_TIMEOUT_MINUTES = 3    # Max minutes of idle before a check-in
 PROACTIVE_TIME_AWARENESS = True       # Time-of-day transitions (morning, late night)
-PROACTIVE_COOLDOWN_MINUTES = 10       # Minimum gap between proactive messages
+PROACTIVE_COOLDOWN_MINUTES = 1        # Soft ceiling for gap between proactive messages
 PROACTIVE_MAX_TOKENS = 80             # Keep proactive messages short
 
 # System prompt for proactive (unprompted) messages
