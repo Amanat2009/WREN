@@ -18,10 +18,11 @@ import logging
 import os
 import re
 import threading
+from datetime import date as _date
 from typing import Optional, List, Dict, Tuple
 
 import requests
-from neo4j import GraphDatabase
+# neo4j is an optional cloud dependency — imported lazily in Neo4jMemory.__init__
 
 import config
 
@@ -42,18 +43,23 @@ INTENT_CLASSIFIER_SYSTEM = (
 )
 
 WRITE_BACK_SYSTEM = (
-    "Analyze the user's message and the assistant's reply. Extract memories to store. "
-    "DO NOT extract any facts that the assistant has ALREADY explicitly saved via its [REMEMBER: ...] or [UPDATE...: ...] tags. "
-    "Return ONLY valid JSON matching this structure exactly (no markdown):\n"
+    "You are a memory extraction assistant. Analyze a conversation between the USER (the human owner) "
+    "and ASSISTANT (the AI). Extract only NEW facts worth remembering.\n"
+    "CRITICAL IDENTITY RULE: The person labeled 'User:' in the conversation IS the owner/user. "
+    "Any other names mentioned (e.g. 'Chirak', 'Ankush', 'Kenisha') are THIRD PARTIES — friends, "
+    "classmates, or people being talked ABOUT. NEVER assign a third-party name as the user's name.\n"
+    "DO NOT extract facts already saved via [REMEMBER: ...] or [UPDATE...: ...] tags.\n"
+    "Return ONLY valid JSON with no markdown:\n"
     "{\n"
-    '  "mem0_episodic": ["list of strings: user preferences, emotional states, opinions, or personal episodic facts NOT explicitly tagged"],\n'
+    '  "mem0_episodic": ["list of strings: user preferences, emotional states, opinions, or episodic facts NOT explicitly tagged"],\n'
     '  "neo4j_relations": [\n'
     '    {"source": "Entity1", "relation": "KNOWS", "target": "Entity2"}\n'
     '  ]\n'
     "}\n"
     "RULES:\n"
-    "- mem0_episodic is ONLY for experiences/feelings/preferences. NOT for relationships.\n"
-    "- neo4j_relations is ONLY for factual relationships between named entities (User, People, Projects, Tools, Concepts). Relation must be uppercase (e.g. LIKES, KNOWS, WORKS_ON).\n"
+    "- mem0_episodic: user experiences/feelings/preferences only. NOT relationships.\n"
+    "- neo4j_relations: factual relationships between named entities (people, projects, tools). Relation UPPERCASE.\n"
+    "- The 'source' of a relation involving the user must be labeled 'User', never a third-party name.\n"
     "- If nothing new is learned, return empty arrays.\n"
     "- Do NOT hallucinate. Do NOT store the same info in both.\n"
 )
@@ -102,18 +108,21 @@ class Neo4jMemory:
         self.driver = None
         self._ready = False
         try:
+            from neo4j import GraphDatabase  # lazy import — optional dependency
             if config.NEO4J_URI and config.NEO4J_USERNAME and config.NEO4J_PASSWORD:
                 self.driver = GraphDatabase.driver(
-                    config.NEO4J_URI, 
+                    config.NEO4J_URI,
                     auth=(config.NEO4J_USERNAME, config.NEO4J_PASSWORD)
                 )
                 self.driver.verify_connectivity()
                 self._ready = True
                 logger.info("✅ Neo4j knowledge graph initialized.")
             else:
-                logger.warning("⚠️  Neo4j credentials missing.")
+                logger.info("ℹ️  Neo4j credentials not set — graph memory disabled.")
+        except ImportError:
+            logger.info("ℹ️  neo4j package not installed — graph memory disabled.")
         except Exception as e:
-            logger.warning(f"⚠️  Neo4j init failed (graph memory disabled): {e}")
+            logger.info(f"ℹ️  Neo4j unavailable (graph memory disabled): {e}")
 
     def close(self):
         if self.driver:
@@ -176,11 +185,18 @@ class CoreMemory:
         logger.info(f"📋 Core memory loaded ({self._fact_count()} facts)")
 
     def _load(self) -> dict:
+        today = _date.today().isoformat()
         default = {
             "persona": config.CORE_MEMORY_PERSONA_DEFAULT,
             "human": config.CORE_MEMORY_HUMAN_DEFAULT,
             "relationship": config.CORE_MEMORY_RELATIONSHIP_DEFAULT,
             "facts": {},
+            "first_met_date": today,    # Set on very first boot
+            "total_conversations": 0,
+            "moments": [],              # Memorable emotional scenes (max 10)
+            "last_session_mood": "neutral",
+            "last_session_valence": 0.0,
+            "warmth_score": 0.7,        # Relationship warmth 0.0–1.0
         }
         if os.path.exists(self.filepath):
             try:
@@ -191,6 +207,15 @@ class CoreMemory:
                     data.setdefault("human", config.CORE_MEMORY_HUMAN_DEFAULT)
                     data.setdefault("relationship", config.CORE_MEMORY_RELATIONSHIP_DEFAULT)
                     data.setdefault("facts", {})
+                    # New fields — migrate existing installs gracefully
+                    if not data.get("first_met_date"):
+                        data["first_met_date"] = today
+                        logger.info(f"💕 First met date set: {today}")
+                    data.setdefault("total_conversations", 0)
+                    data.setdefault("moments", [])
+                    data.setdefault("last_session_mood", "neutral")
+                    data.setdefault("last_session_valence", 0.0)
+                    data.setdefault("warmth_score", 0.7)
                     return data
             except (json.JSONDecodeError, IOError) as e:
                 logger.warning(f"⚠️  Failed to load core memory: {e}")
@@ -359,7 +384,118 @@ class CoreMemory:
         if facts_detail:
             sections.append(f"\n=== DETAILED FACTS ===\n{facts_detail}")
 
+        # Inject warmth modifier
+        warmth_label = self.get_warmth_label()
+        warmth_mod = config.WARMTH_PROMPT_MODIFIERS.get(warmth_label, "")
+        if warmth_mod:
+            sections.append(
+                f"\n=== RELATIONSHIP WARMTH ({warmth_label.upper()}) ===\n{warmth_mod}"
+            )
+
+        # Inject last 3 special moments
+        moments = self.get_moments()
+        if moments:
+            moments_text = "\n".join(f"  - {m}" for m in moments[-3:])
+            sections.append(f"\n=== SPECIAL MOMENTS YOU REMEMBER ===\n{moments_text}")
+
+        # Inject last session mood if emotionally significant
+        last_mood, _ = self.get_last_session_mood()
+        if last_mood not in ("neutral", "playful", "excited", "soft"):
+            sections.append(
+                f"\n=== LAST SESSION ===\n"
+                f"Last time you talked, you were feeling: {last_mood}. "
+                f"This may still linger subtly in how you carry yourself."
+            )
+
         return "\n".join(sections)
+
+    # ─── Anniversary & Milestones ─────────────────────────────────────────────
+
+    def get_anniversary_context(self) -> str:
+        """Check if today is a relationship milestone and return a context hint."""
+        first_met = self.data.get("first_met_date")
+        if not first_met:
+            return ""
+        try:
+            met = _date.fromisoformat(first_met)
+            today = _date.today()
+            days = (today - met).days
+            if days == 0:
+                return "This is the very first day you met him! Make your first greeting extra special."
+            if days > 0 and days % 7 == 0:
+                weeks = days // 7
+                return (
+                    f"Today is your {weeks}-week anniversary — {days} days together! "
+                    f"Mention it warmly and naturally."
+                )
+            if days in (30, 60, 90, 180, 365):
+                return (
+                    f"Today is a special milestone: {days} days together! "
+                    f"Make sure to bring it up naturally."
+                )
+        except Exception:
+            pass
+        return ""
+
+    # ─── Moments (emotional scene memory) ───────────────────────────────────
+
+    def add_moment(self, moment_text: str):
+        """Store a special emotional moment. Max 10 — oldest dropped."""
+        with self._lock:
+            moments = self.data.setdefault("moments", [])
+            moments.append(moment_text)
+            if len(moments) > 10:
+                moments.pop(0)
+            self._save()
+        logger.info(f"💕 Moment saved: {moment_text[:60]}")
+
+    def get_moments(self) -> list:
+        """Return saved special moments."""
+        return self.data.get("moments", [])
+
+    # ─── Session Mood Carryover ──────────────────────────────────────────────
+
+    def save_session_mood(self, gf_emotion: str, valence: float):
+        """Persist the girlfriend's emotional state at session end."""
+        with self._lock:
+            self.data["last_session_mood"] = gf_emotion
+            self.data["last_session_valence"] = round(valence, 3)
+            self._save()
+        logger.info(f"💾 Session mood saved: {gf_emotion} ({valence:+.3f})")
+
+    def get_last_session_mood(self) -> tuple:
+        """Return (last_session_mood, last_session_valence)."""
+        return (
+            self.data.get("last_session_mood", "neutral"),
+            self.data.get("last_session_valence", 0.0),
+        )
+
+    # ─── Warmth Score ────────────────────────────────────────────────────────
+
+    def get_warmth_score(self) -> float:
+        """Return the current relationship warmth score (0.0–1.0)."""
+        return float(self.data.get("warmth_score", 0.7))
+
+    def update_warmth(self, delta: float):
+        """Nudge the warmth score and clamp to [0.0, 1.0]."""
+        with self._lock:
+            current = float(self.data.get("warmth_score", 0.7))
+            new_score = max(0.0, min(1.0, current + delta))
+            self.data["warmth_score"] = round(new_score, 3)
+            self._save()
+        logger.debug(f"💕 Warmth: {current:.3f} → {new_score:.3f} (Δ{delta:+.3f})")
+
+    def get_warmth_label(self) -> str:
+        """Map warmth score float to a named tier."""
+        score = self.get_warmth_score()
+        if score >= 0.8:
+            return "very_warm"
+        elif score >= 0.5:
+            return "warm"
+        elif score >= 0.3:
+            return "cool"
+        else:
+            return "cold"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -454,9 +590,12 @@ class SelfEditEngine:
     _FORGET_RE = re.compile(
         r'\[FORGET:\s*([a-z_]+)\.([a-z_]+)\s*\]', re.IGNORECASE
     )
+    _MOMENT_RE = re.compile(
+        r'\[MOMENT:\s*(.+?)\]', re.IGNORECASE
+    )
     # Master pattern to strip ALL self-edit tags from text
     _ALL_TAGS_RE = re.compile(
-        r'\[(REMEMBER|UPDATE|UPDATE_RELATIONSHIP|FORGET):\s*[^\]]*\]', re.IGNORECASE
+        r'\[(REMEMBER|UPDATE|UPDATE_RELATIONSHIP|FORGET|SEARCH|MOMENT):\s*[^\]]*\]', re.IGNORECASE
     )
 
     def __init__(self, core_memory: CoreMemory):
@@ -506,6 +645,16 @@ class SelfEditEngine:
                     self.core.forget_fact(category, key)
                 except Exception as e:
                     logger.warning(f"⚠️  FORGET failed: {e}")
+
+        # Extract and execute MOMENT tags (save emotional scenes)
+        for match in self._MOMENT_RE.finditer(response_text):
+            moment = match.group(1).strip()
+            if moment:
+                try:
+                    self.core.add_moment(moment)
+                    logger.info(f"💕 Self-edit MOMENT saved: {moment[:60]}")
+                except Exception as e:
+                    logger.warning(f"⚠️  MOMENT failed: {e}")
 
         # Strip all tags from the response
         cleaned = self._ALL_TAGS_RE.sub('', response_text).strip()
@@ -645,6 +794,13 @@ class MemoryManager:
 
         # Layer 2: Add to recall buffer (synchronous, fast)
         self.recall.add_turn(user_text, assistant_text)
+
+        # Increment total conversations counter
+        with self._lock:
+            self.core.data["total_conversations"] = (
+                self.core.data.get("total_conversations", 0) + 1
+            )
+            self.core._save()
 
         # Layers 3+4: Background processing (async, slower)
         thread = threading.Thread(

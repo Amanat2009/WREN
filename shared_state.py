@@ -19,11 +19,15 @@ current_user_text = ""
 current_response_text = ""
 
 # The currently selected personality layout key
-current_personality = "unfiltered"
+current_personality = "girlfriend"
 
 # The detected emotion of the user's latest input
 # Values: "joyful", "excited", "positive", "neutral", "negative", "distressed", "sarcastic"
 current_emotion = "neutral"
+
+# The detected emotional state of the girlfriend's own response
+# Values: "intimate", "jealous", "playful", "excited", "upset", "soft", "neutral"
+current_gf_emotion = "neutral"
 
 # Current mood energy level and response mode (from mood_tracker)
 current_mood_energy = "moderate"
@@ -35,3 +39,5 @@ last_interaction_time = time.time()
 # Mutex to prevent proactive speech from colliding with active interactions
 interaction_lock = threading.Lock()
 
+# Acoustic mode of the user ("whisper", "normal", "shout")
+user_acoustic_mode = "normal"

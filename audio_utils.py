@@ -79,6 +79,7 @@ def record_speech(timeout_sec: float = 0.0, chunk_callback=None) -> np.ndarray:
     speech_detected = False
     last_speech_pos = 0
     last_chunk_sent_pos = 0
+    speech_energies = []
 
     try:
         with sd.InputStream(
@@ -113,6 +114,7 @@ def record_speech(timeout_sec: float = 0.0, chunk_callback=None) -> np.ndarray:
 
                 if energy > config.SILENCE_THRESHOLD:
                     silence_count = 0
+                    speech_energies.append(energy)
                     if not speech_detected:
                         logger.info("🗣️  Speech detected.")
                         speech_detected = True
@@ -141,6 +143,18 @@ def record_speech(timeout_sec: float = 0.0, chunk_callback=None) -> np.ndarray:
         trim_pos = write_pos
 
     shared_state.current_volume = 0.0
+
+    if speech_energies:
+        avg_energy = sum(speech_energies) / len(speech_energies)
+        if avg_energy < config.SILENCE_THRESHOLD + 400:
+            shared_state.user_acoustic_mode = "whisper"
+        elif avg_energy > config.SILENCE_THRESHOLD + 3000:
+            shared_state.user_acoustic_mode = "shout"
+        else:
+            shared_state.user_acoustic_mode = "normal"
+        logger.info(f"🔊 Acoustic Mode: {shared_state.user_acoustic_mode} (Avg Energy: {avg_energy:.0f})")
+    else:
+        shared_state.user_acoustic_mode = "normal"
 
     audio = buffer[:trim_pos]
     duration = len(audio) / config.SAMPLE_RATE

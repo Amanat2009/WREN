@@ -62,9 +62,10 @@ def stream_response(
 
     # Build system prompt dynamically based on Web UI selection
     personality_key = shared_state.current_personality
+    fallback_key = list(config.LLM_PERSONALITIES.keys())[0]
     system_prompt = config.LLM_PERSONALITIES.get(
-        personality_key, 
-        config.LLM_PERSONALITIES["unfiltered"]
+        personality_key,
+        config.LLM_PERSONALITIES[fallback_key]
     )
     
     if memory_context:

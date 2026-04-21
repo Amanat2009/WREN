@@ -282,57 +282,89 @@ class Assistant:
 
                 # ── Step 6: Stream LLM → TTS (concurrent) ──
                 t_llm_start = time.perf_counter()
-                print("   🤖 Thinking & speaking...")
+                
+                search_iterations = 0
+                while search_iterations < 2:
+                    print("   🤖 Thinking & speaking...")
 
-                # Create LLM token stream
-                token_stream = llm_module.stream_response(
-                    user_text, memory_context
-                )
+                    # Create LLM token stream
+                    token_stream = llm_module.stream_response(
+                        user_text, memory_context
+                    )
 
-                # Tee the stream: collect full response while TTS consumes it
-                full_response_parts = []
-                first_token_time = [None]  # mutable container
+                    # Tee the stream: collect full response while TTS consumes it
+                    full_response_parts = []
+                    first_token_time = [None]  # mutable container
 
-                def tee_generator():
-                    for token in token_stream:
-                        if first_token_time[0] is None:
-                            first_token_time[0] = time.perf_counter()
-                        full_response_parts.append(token)
-                        yield token
+                    def tee_generator():
+                        for token in token_stream:
+                            if first_token_time[0] is None:
+                                first_token_time[0] = time.perf_counter()
+                            full_response_parts.append(token)
+                            yield token
+                            
+                    # Monitor for barge-in while TTS plays
+                    barge_in_event = threading.Event()
+                    tts_done_event = threading.Event()
+                    
+                    def _monitor_barge_in():
+                        if self.wake_detector.wait_for_wake_word(stop_event=tts_done_event):
+                            barge_in_event.set()
+                            
+                    barge_thread = threading.Thread(target=_monitor_barge_in, daemon=True)
+                    barge_thread.start()
+
+                    def _check_barge_in():
+                        return barge_in_event.is_set()
+
+                    # TTS consumes the stream and speaks in real time
+                    self.tts.speak_stream(tee_generator(), interrupt_callback=_check_barge_in)
+                    
+                    tts_done_event.set() # Stop the monitor when TTS finishes normally
+
+                    full_response = "".join(full_response_parts)
+                    t_end = time.perf_counter()
+                    
+                    if barge_in_event.is_set():
+                        print("\n🛑 Barge-in detected! Stopping TTS...")
+                        self.is_continuous_mode = True # Instantly loop to listening
+                        break
+
+                    # ── Step 7: Process self-edit memory tags (Letta Layer 5) ──
+                    if full_response.strip():
+                        cleaned_response = self.memory.process_self_edits(full_response)
                         
-                # Monitor for barge-in while TTS plays
-                barge_in_event = threading.Event()
-                tts_done_event = threading.Event()
-                
-                def _monitor_barge_in():
-                    if self.wake_detector.wait_for_wake_word(stop_event=tts_done_event):
-                        barge_in_event.set()
+                        # Process SEARCH tag
+                        import re
+                        search_match = re.search(r'\[SEARCH:\s*([^\]]+)\]', full_response, re.IGNORECASE)
+                        if search_match:
+                            query = search_match.group(1).strip()
+                            print(f"   🔍 Web Search Triggered: {query}")
+                            try:
+                                from tavily import TavilyClient
+                                tavily_client = TavilyClient(api_key=config.TAVILY_API_KEY)
+                                search_result = tavily_client.search(
+                                    query=query, 
+                                    max_results=config.TAVILY_MAX_RESULTS,
+                                    search_depth=config.TAVILY_SEARCH_DEPTH
+                                )
+                                context_strs = []
+                                for res in search_result.get('results', []):
+                                    context_strs.append(f"- {res.get('title', '')}: {res.get('content', '')}")
+                                context = "\n".join(context_strs)
+                                memory_context += f"\n\n=== WEB SEARCH RESULTS for '{query}' ===\n{context}"
+                                search_iterations += 1
+                                print("   🌐 Search complete. Re-prompting LLM...")
+                                continue
+                            except Exception as e:
+                                print(f"   ⚠️ Search failed: {e}")
+                                memory_context += f"\n\n=== WEB SEARCH RESULTS for '{query}' ===\nSearch failed: {e}"
+                                search_iterations += 1
+                                continue
+                    else:
+                        cleaned_response = full_response
                         
-                barge_thread = threading.Thread(target=_monitor_barge_in, daemon=True)
-                barge_thread.start()
-
-                def _check_barge_in():
-                    return barge_in_event.is_set()
-
-                # TTS consumes the stream and speaks in real time
-                self.tts.speak_stream(tee_generator(), interrupt_callback=_check_barge_in)
-                
-                tts_done_event.set() # Stop the monitor when TTS finishes normally
-
-                full_response = "".join(full_response_parts)
-                t_end = time.perf_counter()
-                
-                if barge_in_event.is_set():
-                    print("\n🛑 Barge-in detected! Stopping TTS...")
-                    self.is_continuous_mode = True # Instantly loop to listening
-
-                # ── Step 7: Process self-edit memory tags (Letta Layer 5) ──
-                # The LLM may have included [REMEMBER], [UPDATE], [FORGET] tags
-                # Process them and get the cleaned response
-                if full_response.strip():
-                    cleaned_response = self.memory.process_self_edits(full_response)
-                else:
-                    cleaned_response = full_response
+                    break # Break out of the search loop if no jump is required
 
                 # Timing breakdown
                 total_time = t_end - t_start
@@ -353,7 +385,33 @@ class Assistant:
                     f"(first token: {first_token_latency:.1f}s)"
                 )
 
-                # ── Step 8: Store in all memory layers (background) ──
+                # ── Step 8: Detect GF emotional state from her reply ──
+                # Runs <1ms (regex only). Updates current_gf_emotion so
+                # the TTS synth worker picks the right voice/speed profile.
+                if cleaned_response.strip():
+                    import emotion as emotion_module
+                    gf_emo = emotion_module.analyze_response(cleaned_response)
+                    shared_state.current_gf_emotion = gf_emo
+                    print(f"   💕 GF Emotion: {gf_emo}")
+
+                # ── Step 8b: Update relationship warmth score ──
+                # Nudges warmth based on user's emotional valence this turn
+                _warmth_deltas = {
+                    "excited":    +0.020,
+                    "joyful":     +0.015,
+                    "positive":   +0.008,
+                    "neutral":    +0.003,
+                    "sarcastic":  +0.002,
+                    "negative":   -0.010,
+                    "distressed": -0.020,
+                }
+                _warmth_delta = _warmth_deltas.get(emo.category, 0.0)
+                try:
+                    self.memory.core.update_warmth(_warmth_delta)
+                except Exception:
+                    pass
+
+                # ── Step 9: Store in all memory layers (background) ──
                 if cleaned_response.strip():
                     self.memory.store_conversation(user_text, cleaned_response, full_response)
 
@@ -389,6 +447,14 @@ class Assistant:
         """Gracefully shut down all engines."""
         logger.info("🛑 Shutting down assistant...")
         self._running = False
+        # Save her last emotional state for carryover to next session
+        try:
+            self.memory.core.save_session_mood(
+                shared_state.current_gf_emotion,
+                0.0,   # valence placeholder (mood_tracker holds the real value)
+            )
+        except Exception:
+            pass
         self.proactive.stop()
         self.tts.stop()
         self.wake_detector.cleanup()

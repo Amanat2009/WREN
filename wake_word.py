@@ -6,6 +6,7 @@ Falls back to a simple energy-spike detector if Porcupine fails to initialize.
 
 import logging
 import struct
+import threading
 import numpy as np
 import sounddevice as sd
 

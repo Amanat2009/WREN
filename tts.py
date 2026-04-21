@@ -155,8 +155,8 @@ class TTSEngine:
     @staticmethod
     def _clean_text(text: str) -> str:
         """Strip markdown formatting and memory tags so TTS doesn't pronounce them."""
-        # Self-edit memory tags: [REMEMBER: ...], [UPDATE: ...], [UPDATE_RELATIONSHIP: ...], [FORGET: ...]
-        text = re.sub(r'\[(REMEMBER|UPDATE|UPDATE_RELATIONSHIP|FORGET):\s*[^\]]*\]', '', text, flags=re.IGNORECASE)
+        # Self-edit memory tags + search + moment: [REMEMBER: ...], [SEARCH: ...], [MOMENT: ...], etc.
+        text = re.sub(r'\[(REMEMBER|UPDATE|UPDATE_RELATIONSHIP|FORGET|SEARCH|MOMENT):\s*[^\]]*\]', '', text, flags=re.IGNORECASE)
         # Think tags (safety net)
         text = re.sub(r'</?think>', '', text, flags=re.IGNORECASE)
         # Markdown formatting
@@ -177,6 +177,7 @@ class TTSEngine:
 
     def _synth_worker(self):
         """Synthesis thread: reads text from queue, synthesizes audio, forwards to playback."""
+        import random  # already stdlib, cheap to import here
         chunk_index = 0
         while not self._stop_event.is_set():
             try:
@@ -192,12 +193,40 @@ class TTSEngine:
             try:
                 t0 = time.perf_counter()
 
-                # ── Emotion-aware voice/speed modulation ──
-                emotion = shared_state.current_emotion
-                voice, speed = config.EMOTION_TTS_MAP.get(
-                    emotion,
+                # ── Girlfriend emotion-aware voice/speed modulation ──
+                # Uses HER emotional state (not the user's) to drive prosody
+                gf_emotion = shared_state.current_gf_emotion
+                voice, speed = config.GIRLFRIEND_TTS_MAP.get(
+                    gf_emotion,
                     (config.KOKORO_VOICE, config.KOKORO_SPEED),
                 )
+
+                # ── Acoustic Awareness (Whisper/Shout Mode) ──
+                acoustic_mode = shared_state.user_acoustic_mode
+                vol_mult = 1.0
+                if acoustic_mode == "whisper":
+                    speed = max(0.6, speed - 0.15)  # slower
+                    vol_mult = 0.35  # much quieter
+                elif acoustic_mode == "shout":
+                    speed = min(1.5, speed + 0.1)
+                    vol_mult = 1.3
+
+                # ── Voice filler injection (first chunk only, probabilistic) ──
+                if chunk_index == 0:
+                    fillers = config.GF_VOICE_FILLERS.get(gf_emotion, [])
+                    if fillers and random.random() < config.GF_FILLER_PROBABILITY:
+                        filler_text = random.choice(fillers)
+                        try:
+                            f_samples, f_rate = self.kokoro.create(
+                                filler_text, voice=voice, speed=speed, lang="en-us"
+                            )
+                            if not isinstance(f_samples, np.ndarray):
+                                f_samples = np.array(f_samples, dtype=np.float32)
+                            f_samples = np.clip(f_samples * vol_mult, -1.0, 1.0)
+                            self._audio_queue.put((f_samples, f_rate))
+                            logger.debug(f"🎵 Filler: '{filler_text}' [{gf_emotion}] (Mode: {acoustic_mode})")
+                        except Exception as fe:
+                            logger.debug(f"Filler synthesis skipped: {fe}")
 
                 samples, sample_rate = self.kokoro.create(
                     text,
@@ -208,11 +237,12 @@ class TTSEngine:
 
                 if not isinstance(samples, np.ndarray):
                     samples = np.array(samples, dtype=np.float32)
+                samples = np.clip(samples * vol_mult, -1.0, 1.0)
 
                 elapsed = time.perf_counter() - t0
                 logger.debug(
                     f"🗣️  Synth chunk {chunk_index} ({elapsed:.2f}s) "
-                    f"[{emotion}→{voice}@{speed}x]: \"{text[:40]}...\""
+                    f"[{gf_emotion}→{voice}@{speed:.2f}x|vol={vol_mult}]: \"{text[:40]}...\""
                 )
                 self._audio_queue.put((samples, sample_rate))
                 chunk_index += 1

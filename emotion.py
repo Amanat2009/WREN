@@ -81,9 +81,15 @@ def warmup():
     First run downloads ~330MB; subsequent runs load from cache (~1-2s).
     """
     global _pipeline
+    import os
     logger.info(f"🔥 Loading emotion model ({_MODEL_NAME})...")
     try:
         from transformers import pipeline as tf_pipeline
+
+        # ⚡ Suppress huggingface_hub network calls (metadata, discussions,
+        # commits, PR threads) when the model is already cached locally.
+        # On first run (no cache), remove this or it will fail to download.
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
         with _pipeline_lock:
             _pipeline = tf_pipeline(
@@ -223,3 +229,81 @@ def analyze(text: str) -> EmotionResult:
         logger.warning(f"⚠️  Emotion analysis failed: {e}")
         default.is_humor = is_humor
         return default
+
+
+# ─── Girlfriend Response Emotion Analyzer ─────────────────────────────────
+# Analyzes the LLM's OWN generated reply to determine her emotional state.
+# This drives TTS prosody (voice, speed) from HER feelings — not the user's.
+# Uses fast regex (zero model inference) — runs in <1ms.
+
+_INTIMATE_RE = re.compile(
+    r'\b(i love you|love you|miss you|thinking about you|cuddle|hold you|'
+    r'kiss|babe|baby|sweetheart|darling|forever|belong to me|mine|'
+    r'close to you|next to you)\b',
+    re.IGNORECASE,
+)
+_JEALOUS_RE = re.compile(
+    r'\b(who is she|who is he|another girl|other girl|other woman|'
+    r'talking to her|texting her|been with|hanging out with|'
+    r'why were you|don\'t you dare|excuse me|i saw that|'
+    r'you\'re mine|back off|stay away|i don\'t like|not okay)\b',
+    re.IGNORECASE,
+)
+_PLAYFUL_RE = re.compile(
+    r'\b(haha|lol|lmao|teasing|just kidding|jk|wink|😏|😜|🙈|'
+    r'bet you|i dare you|catch me|try me|come on|oh please|'
+    r'you wish|whatever|rolling my eyes)\b',
+    re.IGNORECASE,
+)
+_EXCITED_RE = re.compile(
+    r'(!{2,}|omg|oh my god|no way|seriously\?|wait what|'
+    r'i can\'t believe|that\'s amazing|oh wow|yesss|yasss)',
+    re.IGNORECASE,
+)
+_UPSET_RE = re.compile(
+    r'\b(you ignored|you didn\'t|you forgot|you never|you always|'
+    r'i\'m annoyed|i\'m mad|i\'m angry|that\'s not fair|'
+    r'you don\'t care|fine|whatever then|i\'m done|leave me alone)\b',
+    re.IGNORECASE,
+)
+_SOFT_RE = re.compile(
+    r'\b(it\'s okay|i\'m here|don\'t worry|you\'re okay|'
+    r'i got you|take your time|breathe|i understand|'
+    r'that must be hard|i care about you|i\'m sorry you feel)\b',
+    re.IGNORECASE,
+)
+
+
+def analyze_response(text: str) -> str:
+    """
+    Classify the girlfriend's OWN generated reply into an emotional state.
+    Uses fast regex patterns — zero model inference (<1ms).
+
+    Returns one of:
+        "intimate", "jealous", "playful", "excited", "upset", "soft", "neutral"
+    """
+    if not text or not text.strip():
+        return "neutral"
+
+    # Priority order matters — jealous/upset trump playful, intimate trumps neutral
+    if _JEALOUS_RE.search(text):
+        logger.debug("🎭 GF Emotion: jealous")
+        return "jealous"
+    if _UPSET_RE.search(text):
+        logger.debug("🎭 GF Emotion: upset")
+        return "upset"
+    if _INTIMATE_RE.search(text):
+        logger.debug("🎭 GF Emotion: intimate")
+        return "intimate"
+    if _SOFT_RE.search(text):
+        logger.debug("🎭 GF Emotion: soft")
+        return "soft"
+    if _EXCITED_RE.search(text):
+        logger.debug("🎭 GF Emotion: excited")
+        return "excited"
+    if _PLAYFUL_RE.search(text):
+        logger.debug("🎭 GF Emotion: playful")
+        return "playful"
+
+    logger.debug("🎭 GF Emotion: neutral")
+    return "neutral"
