@@ -94,7 +94,7 @@ MEM0_USER_ID = "user"                # Persistent user identifier
 MEM0_COLLECTION = "assistant_memory" # Qdrant collection name
 MEM0_SEARCH_LIMIT = 3                # Max memories to retrieve per query
 MEM0_SCORE_THRESHOLD = 0.6           # Relevance threshold (ignore low-quality matches)
-MEMORY_MAX_CONTEXT_LENGTH = 2000    # Max chars of memory context in prompt
+MEMORY_MAX_CONTEXT_LENGTH = 3000    # Max chars of memory context in prompt
 
 # ─── Core Memory Blocks (Letta Layer 1) ───────────────────────────────────
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))

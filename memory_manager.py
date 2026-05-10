@@ -18,7 +18,8 @@ import logging
 import os
 import re
 import threading
-from datetime import date as _date
+import time as _time
+from datetime import date as _date, datetime as _datetime
 from typing import Optional, List, Dict, Tuple
 
 import requests
@@ -36,10 +37,22 @@ INTENT_CLASSIFIER_SYSTEM = (
     "Analyze the user's message and determine what memory stores to query. "
     "Return ONLY valid JSON with no markdown:\n"
     "{\n"
-    '  "named_entities": ["list of entities/projects/people mentioned by name, empty if none"]\n'
+    '  "query_type": "self|relationship|third_party|general|memory_recall",\n'
+    '  "temporal_hint": "recent|old|none",\n'
+    '  "named_entities": ["list of proper nouns/names mentioned, empty if none"],\n'
+    '  "topic_keywords": ["key topic words for memory search, empty if casual"],\n'
+    '  "needs_episodic": true,\n'
+    '  "needs_graph": false\n'
     "}\n"
     "RULES:\n"
-    "- named_entities should contain specific proper nouns if relationship/fact lookup is needed.\n"
+    "- query_type: 'self' if asking about themselves, 'relationship' if about you two, "
+    "'third_party' if about someone else, 'memory_recall' if asking you to remember something, "
+    "'general' for everything else.\n"
+    "- temporal_hint: 'recent' if they reference recent events, 'old' if distant past, 'none' otherwise.\n"
+    "- named_entities: specific proper nouns (people, places, projects).\n"
+    "- topic_keywords: 2-4 words capturing the topic (e.g. ['job', 'career'] or ['music', 'taste']).\n"
+    "- needs_episodic: true if the query benefits from past experience/opinion recall.\n"
+    "- needs_graph: true if named entities are mentioned and relationship lookup helps.\n"
 )
 
 WRITE_BACK_SYSTEM = (
@@ -314,7 +327,11 @@ class CoreMemory:
             facts = self.data.setdefault("facts", {})
             if category not in facts:
                 facts[category] = {}
-            facts[category][key] = value
+            facts[category][key] = {
+                "value": value,
+                "ts": _time.time(),
+                "date": _date.today().isoformat(),
+            }
             self._rebuild_human_summary()
             self._save()
             logger.info(f"🧠 Self-edit SET: {category}.{key} = {value}")
@@ -343,10 +360,23 @@ class CoreMemory:
             if isinstance(traits, dict):
                 traits = facts["core_traits"] = list(traits.values())
 
-            traits.append(fact_text)
+            traits.append({
+                "text": fact_text,
+                "ts": _time.time(),
+                "date": _date.today().isoformat(),
+            })
             self._rebuild_human_summary()
             self._save()
             logger.info(f"🧠 Permanent Self-edit REMEMBER: {fact_text[:60]}")
+
+    @staticmethod
+    def _extract_value(item):
+        """Extract display value from a fact item (handles both old and timestamped formats)."""
+        if isinstance(item, dict) and "value" in item:
+            return item["value"]
+        if isinstance(item, dict) and "text" in item:
+            return item["text"]
+        return item
 
     def _rebuild_human_summary(self):
         """Rebuild the human block from the facts tree as natural language."""
@@ -359,9 +389,10 @@ class CoreMemory:
             if isinstance(items, dict) and items:
                 fact_strs = []
                 for key, value in items.items():
-                    if isinstance(value, list):
-                        value = ", ".join(str(v) for v in value)
-                    fact_strs.append(f"{key}: {value}")
+                    display = self._extract_value(value)
+                    if isinstance(display, list):
+                        display = ", ".join(str(self._extract_value(v)) for v in display)
+                    fact_strs.append(f"{key}: {display}")
                 parts.append(f"{category}: {'; '.join(fact_strs)}")
 
         if parts:
@@ -378,12 +409,42 @@ class CoreMemory:
             if isinstance(items, dict) and items:
                 fact_strs = []
                 for key, value in items.items():
-                    if isinstance(value, list):
-                        value = ", ".join(str(v) for v in value)
-                    fact_strs.append(f"  - {key}: {value}")
+                    display = self._extract_value(value)
+                    if isinstance(display, list):
+                        display = ", ".join(str(self._extract_value(v)) for v in display)
+                    fact_strs.append(f"  - {key}: {display}")
                 parts.append(f"{category}:\n" + "\n".join(fact_strs))
 
         return "\n".join(parts)
+
+    def get_all_facts_flat(self) -> List[Dict]:
+        """Flatten all facts into a searchable list with metadata."""
+        facts = self.data.get("facts", {})
+        result = []
+        for category, items in facts.items():
+            if isinstance(items, dict):
+                for key, value in items.items():
+                    display = self._extract_value(value)
+                    ts = value.get("ts", 0) if isinstance(value, dict) else 0
+                    if isinstance(display, list):
+                        display = ", ".join(str(self._extract_value(v)) for v in display)
+                    result.append({
+                        "text": f"{category}.{key}: {display}",
+                        "category": category,
+                        "key": key,
+                        "ts": ts,
+                    })
+            elif isinstance(items, list):
+                for item in items:
+                    display = self._extract_value(item)
+                    ts = item.get("ts", 0) if isinstance(item, dict) else 0
+                    result.append({
+                        "text": f"{category}: {display}",
+                        "category": category,
+                        "key": None,
+                        "ts": ts,
+                    })
+        return result
 
     def get_prompt_section(self) -> str:
         """Format core memory blocks for injection into the system prompt."""
@@ -414,7 +475,11 @@ class CoreMemory:
         # Inject last 3 special moments
         moments = self.get_moments()
         if moments:
-            moments_text = "\n".join(f"  - {m}" for m in moments[-3:])
+            def _fmt_moment(m):
+                if isinstance(m, dict):
+                    return f"{m.get('text', '')} ({m.get('date', 'unknown date')})"
+                return str(m)
+            moments_text = "\n".join(f"  - {_fmt_moment(m)}" for m in moments[-3:])
             sections.append(f"\n=== SPECIAL MOMENTS YOU REMEMBER ===\n{moments_text}")
 
         # Inject last session mood if emotionally significant
@@ -459,10 +524,14 @@ class CoreMemory:
     # ─── Moments (emotional scene memory) ───────────────────────────────────
 
     def add_moment(self, moment_text: str):
-        """Store a special emotional moment. Max 10 — oldest dropped."""
+        """Store a special emotional moment with timestamp. Max 10 — oldest dropped."""
         with self._lock:
             moments = self.data.setdefault("moments", [])
-            moments.append(moment_text)
+            moments.append({
+                "text": moment_text,
+                "ts": _time.time(),
+                "date": _date.today().isoformat(),
+            })
             if len(moments) > 10:
                 moments.pop(0)
             self._save()
@@ -533,6 +602,7 @@ class RecallMemory:
         self.filepath = filepath
         self.max_turns = max_turns
         self._lock = threading.Lock()
+        self._on_turns_dropped = None  # Callback for summarizing dropped turns
         self.turns: List[Dict[str, str]] = self._load()
         logger.info(f"💬 Recall memory loaded ({len(self.turns)} turns)")
 
@@ -556,15 +626,25 @@ class RecallMemory:
 
     def add_turn(self, user_text: str, assistant_text: str):
         """Add a conversation turn to the buffer."""
+        dropped = []
         with self._lock:
             self.turns.append({
                 "user": user_text,
                 "assistant": assistant_text,
             })
-            # Keep only the last N turns
+            # Keep only the last N turns — capture what's being dropped
             if len(self.turns) > self.max_turns:
+                dropped = self.turns[:-self.max_turns]
                 self.turns = self.turns[-self.max_turns:]
             self._save()
+
+        # Summarize dropped turns for long-term memory (async)
+        if dropped and self._on_turns_dropped:
+            threading.Thread(
+                target=self._on_turns_dropped,
+                args=(dropped,),
+                daemon=True,
+            ).start()
 
     def get_prompt_section(self) -> str:
         """Format recent conversation history for the system prompt."""
@@ -743,6 +823,9 @@ class MemoryManager:
         thread = threading.Thread(target=self._init_mem0, daemon=True)
         thread.start()
 
+        # Wire up dropped-turn summarization callback
+        self.recall._on_turns_dropped = self._summarize_dropped_turns
+
     def _init_mem0(self):
         """Initialize Mem0 in background thread."""
         try:
@@ -763,7 +846,8 @@ class MemoryManager:
     def get_context_for_prompt(self, user_query: str = "") -> str:
         """
         Letta-style pre-flight retrieval logic.
-        Combines core layers, classifies intent, and selectively pulls Mem0/Neo4j.
+        Combines core layers, classifies intent, and selectively pulls
+        archival facts, Mem0, and Neo4j based on multi-signal routing.
         """
         parts = []
 
@@ -778,45 +862,84 @@ class MemoryManager:
         if not user_query:
             return "\n".join(parts)
 
-        intent = {"named_entities": []}
-        
-        # Pre-flight: Classify Intent ONLY if Neo4j is ready and query is substantial
-        # This skips the blocking LLM call for short phrases like "yeah", "ok", "hello"
-        if self.neo4j._ready and len(user_query.strip().split()) >= 3:
+        # Default intent (fallback for short/casual messages)
+        intent = {
+            "query_type": "general",
+            "temporal_hint": "none",
+            "named_entities": [],
+            "topic_keywords": [],
+            "needs_episodic": True,
+            "needs_graph": False,
+        }
+
+        # Pre-flight: Classify Intent for substantial queries (3+ words)
+        if len(user_query.strip().split()) >= 3:
             resp = _direct_ollama_generate(
                 prompt=user_query,
                 system=INTENT_CLASSIFIER_SYSTEM,
-                max_tokens=150
+                max_tokens=200
             )
-            
             if resp:
                 try:
-                    # Extract JSON if wrapped in markdown
                     if "```" in resp:
                         start = resp.find("{")
                         end = resp.rfind("}") + 1
                         resp = resp[start:end]
-                    intent = json.loads(resp)
+                    parsed = json.loads(resp)
+                    # Merge parsed fields over defaults
+                    for k in intent:
+                        if k in parsed:
+                            intent[k] = parsed[k]
                 except Exception as e:
                     logger.debug(f"Intent parsing failed: {e}.")
 
-        # Layer 4: Mem0 (Always search for context)
-        if self._mem0_ready:
-            relevant = self._search_mem0(user_query)
+        entities = intent.get("named_entities", [])
+        topics = intent.get("topic_keywords", [])
+        needs_episodic = intent.get("needs_episodic", True)
+        needs_graph = intent.get("needs_graph", False)
+        query_type = intent.get("query_type", "general")
+
+        # ── Layer 3: Semantic Archival Fact Search ──
+        # Search the flattened fact list by topic keywords instead of dumping all
+        if topics or query_type in ("self", "memory_recall"):
+            search_terms = " ".join(topics) if topics else user_query
+            matched_facts = self._search_archival_facts(search_terms)
+            if matched_facts:
+                parts.append(f"\n=== RELEVANT FACTS ===\n{matched_facts}")
+
+        # ── Layer 4: Mem0 Episodic Recall ──
+        if needs_episodic and self._mem0_ready:
+            # Build a richer search query from topics + entities
+            search_query = user_query
+            if topics:
+                search_query = " ".join(topics) + " " + user_query
+            relevant = self._search_mem0(search_query)
             if relevant:
                 parts.append(f"\n=== EPISODIC RECALL (Mem0) ===\n{relevant}")
 
-        # Layer 3: Neo4j (Relational/Entities)
-        entities = intent.get("named_entities", [])
-        if entities and self.neo4j._ready:
+            # Cross-reference: also search Mem0 for each named entity
+            for entity in entities:
+                entity_mem = self._search_mem0(f"about {entity}")
+                if entity_mem and entity_mem not in (relevant or ""):
+                    parts.append(f"\n=== MEMORIES ABOUT {entity.upper()} ===\n{entity_mem}")
+
+        # ── Layer 5: Neo4j Graph Recall ──
+        if (needs_graph or entities) and self.neo4j._ready:
             neo_results = []
             for entity in entities:
                 res = self.neo4j.query_graph(entity)
                 if res:
                     neo_results.append(res)
-            
             if neo_results:
                 parts.append(f"\n=== GRAPH RECALL (Neo4j) ===\n" + "\n".join(neo_results))
+
+        # ── Contradiction detection ──
+        # If the user's message overlaps with existing facts, hint the LLM
+        if topics or query_type in ("self", "memory_recall"):
+            search_terms = " ".join(topics) if topics else user_query
+            contradictions = self._check_contradictions(search_terms)
+            if contradictions:
+                parts.append(f"\n=== POSSIBLE UPDATES NEEDED ===\n{contradictions}")
 
         context = "\n".join(parts)
 
@@ -825,6 +948,84 @@ class MemoryManager:
             context = context[:config.MEMORY_MAX_CONTEXT_LENGTH] + "\n  ..."
 
         return context
+
+    def _search_archival_facts(self, query: str, top_k: int = 8) -> str:
+        """Search the flattened fact tree by keyword relevance."""
+        all_facts = self.core.get_all_facts_flat()
+        if not all_facts:
+            return ""
+
+        query_lower = query.lower()
+        query_words = set(query_lower.split())
+
+        scored = []
+        for fact in all_facts:
+            fact_text = fact["text"].lower()
+            # Score: count of query words that appear in the fact
+            score = sum(1 for w in query_words if w in fact_text)
+            # Bonus for exact substring match
+            if query_lower in fact_text:
+                score += 3
+            # Bonus for recent facts
+            if fact["ts"] > 0:
+                age_days = (_time.time() - fact["ts"]) / 86400
+                if age_days < 7:
+                    score += 1  # Recency boost
+            if score > 0:
+                scored.append((fact["text"], score))
+
+        if not scored:
+            return ""
+
+        scored.sort(key=lambda x: -x[1])
+        return "\n".join(f"  - {text}" for text, _ in scored[:top_k])
+
+    def _check_contradictions(self, query: str) -> str:
+        """
+        Check if the user's message topic overlaps with existing facts.
+        Returns a hint for the LLM to use [UPDATE] if info has changed.
+        """
+        matched = self._search_archival_facts(query, top_k=3)
+        if not matched:
+            return ""
+
+        return (
+            "The following existing facts may be relevant to what your friend "
+            "is currently saying. If any of this information has CHANGED, use "
+            "[UPDATE: category.key=new_value] to correct it. Don't store duplicates.\n"
+            f"{matched}"
+        )
+
+    # ─── Dropped turn summarization (long-term recall) ────────────────────
+
+    def _summarize_dropped_turns(self, dropped_turns: list):
+        """Summarize conversation turns evicted from the recall buffer and store in Mem0."""
+        if not self._mem0_ready or not self._mem0:
+            return
+
+        try:
+            conversation = "\n".join(
+                f"User: {t.get('user', '')}\nAssistant: {t.get('assistant', '')}"
+                for t in dropped_turns
+                if t.get("user") and not t["user"].startswith("[PROACTIVE")
+            )
+            if not conversation.strip():
+                return
+
+            summary = _direct_ollama_generate(
+                prompt=conversation,
+                system=(
+                    "Summarize this conversation in 2-3 sentences. "
+                    "Focus on key facts learned, emotional moments, and important topics. "
+                    "Write in third person about the user."
+                ),
+                max_tokens=150,
+            )
+            if summary:
+                self._mem0.add([summary], user_id=config.MEM0_USER_ID)
+                logger.info(f"📝 Summarized {len(dropped_turns)} dropped turns into Mem0.")
+        except Exception as e:
+            logger.debug(f"⚠️  Dropped turn summarization failed: {e}")
 
     # ─── Memory storage (after each conversation turn) ───────────────────
 
@@ -888,11 +1089,13 @@ class MemoryManager:
 
             data = json.loads(resp)
 
-            # Write to Mem0
+            # Write to Mem0 (with deduplication)
             mem0_facts = data.get("mem0_episodic", [])
             if mem0_facts and self._mem0_ready and self._mem0 is not None:
-                self._mem0.add(mem0_facts, user_id=config.MEM0_USER_ID)
-                logger.info(f"🧠 Mem0 stored {len(mem0_facts)} episodic facts.")
+                unique_facts = self._deduplicate_mem0(mem0_facts)
+                if unique_facts:
+                    self._mem0.add(unique_facts, user_id=config.MEM0_USER_ID)
+                    logger.info(f"🧠 Mem0 stored {len(unique_facts)} episodic facts ({len(mem0_facts) - len(unique_facts)} duplicates skipped).")
                 
             # Write to Neo4j
             neo4j_rels = data.get("neo4j_relations", [])
@@ -956,3 +1159,42 @@ class MemoryManager:
         except Exception as e:
             logger.debug(f"⚠️  Mem0 search failed: {e}")
             return ""
+
+    def _deduplicate_mem0(self, new_facts: list) -> list:
+        """
+        Filter out facts that are already stored in Mem0 (semantic dedup).
+        Returns only genuinely new facts.
+        """
+        if not self._mem0_ready or not self._mem0:
+            return new_facts  # Can't check — store everything
+
+        unique = []
+        for fact in new_facts:
+            fact_str = fact if isinstance(fact, str) else str(fact)
+            if not fact_str.strip():
+                continue
+            try:
+                existing = self._mem0.search(
+                    fact_str,
+                    user_id=config.MEM0_USER_ID,
+                    limit=1,
+                )
+                # Check if a near-duplicate already exists
+                mem_list = existing
+                if isinstance(existing, dict):
+                    mem_list = existing.get("results", [])
+                
+                is_dup = False
+                if mem_list:
+                    top = mem_list[0] if mem_list else {}
+                    if isinstance(top, dict) and top.get("score", 0) > 0.85:
+                        logger.debug(f"🔄 Mem0 dedup: skipping '{fact_str[:50]}' (score={top.get('score', 0):.2f})")
+                        is_dup = True
+                
+                if not is_dup:
+                    unique.append(fact_str)
+            except Exception:
+                unique.append(fact_str)  # On error, store anyway
+
+        return unique
+

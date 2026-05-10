@@ -287,9 +287,14 @@ class ProactiveEngine:
             try:
                 moments = self.memory.core.get_moments()
                 if moments:
-                    moments_ctx = f"[A MOMENT YOU REMEMBER] {moments[-1]}\n"
+                    m = moments[-1]
+                    moment_text = m.get("text", str(m)) if isinstance(m, dict) else str(m)
+                    moments_ctx = f"[A MOMENT YOU REMEMBER] {moment_text}\n"
             except Exception:
                 pass
+
+        # Inject a specific personal fact for more personalized messages
+        personal_topic = self._pick_personal_topic()
 
         memory_ctx = self._get_memory_context("checking in thinking about you")
 
@@ -307,6 +312,7 @@ class ProactiveEngine:
             f"[CONTEXT] {time_hint}\n"
             f"{recent_context}"
             f"{moments_ctx}"
+            f"{personal_topic}"
             f"{memory_ctx}\n\n"
             f"{trigger_prompt}"
         )
@@ -407,6 +413,17 @@ class ProactiveEngine:
         except Exception as e:
             logger.debug(f"⚠️  Proactive memory fetch failed: {e}")
         return "[MEMORY] No specific memories to reference."
+
+    def _pick_personal_topic(self) -> str:
+        """Pick a random specific fact about the user for personalized proactive messages."""
+        try:
+            all_facts = self.memory.core.get_all_facts_flat()
+            if all_facts:
+                topic = random.choice(all_facts)
+                return f"[PERSONAL DETAIL YOU KNOW] {topic['text']}\n"
+        except Exception:
+            pass
+        return ""
 
     def _speak_proactive(self, prompt: str, label: str = "proactive"):
         """Generate and speak a proactive message, with collision safety."""
